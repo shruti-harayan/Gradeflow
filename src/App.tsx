@@ -5,6 +5,7 @@ import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import Header from "./pages/Header";
 import { Routes, Route } from "react-router-dom";
+import AdminDashboard from "./pages/AdminDashboard";
 
 export default function App() {
   return (
@@ -16,7 +17,8 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />       {/* teacher */}
+          <Route path="/admin" element={<AdminDashboard />} />       {/* admin */}
         </Routes>
       </main>
 

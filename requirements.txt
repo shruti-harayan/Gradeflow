@@ -5,6 +5,7 @@ pydantic
 email-validator
 python-jose[cryptography]
 passlib[bcrypt]
+argon2-cffi
 google-auth
 requests
 sqlalchemy

@@ -2,37 +2,31 @@
 import React from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import type { CredentialResponse } from "@react-oauth/google";
-import axios from "axios";
+import { useNavigate } from "react-router-dom";
+import { loginWithGoogle } from "../services/authService";
 
-type Props = { onSuccess?: () => void };
+export default function GoogleSignIn() {
+  const navigate = useNavigate();
 
-export default function GoogleSignIn({ onSuccess }: Props) {
   async function handleCredentialResponse(response: CredentialResponse | null) {
-    if (!response || !response.credential) return;
+    if (!response?.credential) return;
     try {
-      // Send id_token (credential) to backend for verification & sign-in
-      const res = await axios.post(
-        `${import.meta.env.VITE_BACKEND_URL || process.env.REACT_APP_BACKEND_URL}/auth/google`,
-        { id_token: response.credential },
-        { withCredentials: true }
-      );
-
-      // res.data might contain your app JWT or user info
-      console.log("Backend response", res.data);
-      onSuccess?.();
+      const data = await loginWithGoogle(response.credential);
+      if (data.user.role === "admin") {
+        navigate("/admin");
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err) {
-      console.error("Google sign-in backend error", err);
+      console.error("Google sign-in error", err);
+      // TODO: show toast / error message
     }
   }
 
   return (
-    <div>
-      <GoogleLogin
-        onSuccess={(credentialResponse) => handleCredentialResponse(credentialResponse)}
-        onError={() => {
-          console.error("Google Login Failed");
-        }}
-      />
-    </div>
+    <GoogleLogin
+      onSuccess={handleCredentialResponse}
+      onError={() => console.error("Google Login failed")}
+    />
   );
 }

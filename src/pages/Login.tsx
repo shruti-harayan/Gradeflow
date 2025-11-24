@@ -1,13 +1,40 @@
+// src/pages/Login.tsx 
 import React from "react";
 import { Link } from "react-router-dom";
 import GoogleSignIn from "../components/GoogleSignIn";
+import { useNavigate } from "react-router-dom";
+import { login } from "../services/authService";
+
 
 export default function Login() {
+  const navigate = useNavigate();
   const [showPassword, setShowPassword] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
 
-  function handleLocalLogin(e: React.FormEvent) {
+  async function handleLocalLogin(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    // TODO: call backend /auth/login
+    setError(null);
+    setLoading(true);
+
+    const form = e.currentTarget;
+    const email = (form.elements.namedItem("email") as HTMLInputElement).value;
+    const password = (form.elements.namedItem("password") as HTMLInputElement)
+      .value;
+
+    try {
+      const data = await login(email, password);
+      if (data.user.role === "admin") {
+        navigate("/admin");
+      } else {
+        navigate("/dashboard");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Invalid email or password");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
