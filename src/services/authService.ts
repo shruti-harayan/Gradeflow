@@ -16,9 +16,14 @@ export interface TokenResponse {
   user: User;
 }
 
+function storeAuth(data: TokenResponse) {
+  setAuthToken(data.access_token);
+  localStorage.setItem("gf_user", JSON.stringify(data.user));
+}
+
 export async function login(email: string, password: string) {
   const res = await api.post<TokenResponse>("/auth/login", { email, password });
-  setAuthToken(res.data.access_token);
+  storeAuth(res.data);
   return res.data;
 }
 
@@ -39,6 +44,6 @@ export async function signup(
 
 export async function loginWithGoogle(id_token: string) {
   const res = await api.post<TokenResponse>("/auth/google", { id_token });
-  setAuthToken(res.data.access_token);
+  storeAuth(res.data);
   return res.data;
 }
