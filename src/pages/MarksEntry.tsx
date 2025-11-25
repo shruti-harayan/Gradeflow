@@ -1,11 +1,13 @@
 // src/pages/MarksEntry.tsx
 import React from "react";
 import { useSearchParams } from "react-router-dom";
+import {saveExamMarks,type QuestionPayload,type StudentMarksPayload,getExamMarks,type ExamMarksOut} from "../services/examService";
 
 type Student = {
   id: number;
   rollNo: string;
   name: string;
+  absent?: boolean;
 };
 
 type Question = {
@@ -17,8 +19,8 @@ type Question = {
 type MarksMap = Record<string, number | "">; // key = `${studentId}-${questionId}`
 
 const initialStudents: Student[] = [
-  { id: 1, rollNo: "101", name: "shruti" },
-  { id: 2, rollNo: "102", name: "Bob" },
+  { id: 1, rollNo: "101", name: "Alice", absent: false },
+  { id: 2, rollNo: "102", name: "Bob", absent: false },
 ];
 
 const initialQuestions: Question[] = [
@@ -30,11 +32,20 @@ const initialQuestions: Question[] = [
 export default function MarksEntry() {
   const [searchParams] = useSearchParams();
 
+  const examIdParam = searchParams.get("examId");
+  const examId = examIdParam ? Number(examIdParam) : 0;
+
   const initialSubject = searchParams.get("subject") ?? "CS101";
+  const initialSubjectName = searchParams.get("subjectName") ?? "Algorithms";
   const initialExam = searchParams.get("exam") ?? "Internal";
+  const initialSem = Number(searchParams.get("sem") ?? 1);
 
   const [subjectCode, setSubjectCode] = React.useState(initialSubject);
+  const [subjectName, setSubjectName] = React.useState(initialSubjectName);
   const [examName, setExamName] = React.useState(initialExam);
+  const [semester, setSemester] = React.useState<number>(
+    isNaN(initialSem) ? 1 : initialSem
+  );
 
   const [students, setStudents] = React.useState<Student[]>(initialStudents);
   const [questions, setQuestions] =
@@ -45,15 +56,72 @@ export default function MarksEntry() {
   const [newStudentName, setNewStudentName] = React.useState("");
   const [newQuestionMax, setNewQuestionMax] = React.useState(10);
 
-  // Utility key for marks map
+  // key for marks map
   const keyFor = (studentId: number, questionId: number) =>
     `${studentId}-${questionId}`;
 
+  React.useEffect(() => {
+  async function loadExam() {
+    if (!examId || examId <= 0) return;
+
+    try {
+      const data: ExamMarksOut = await getExamMarks(examId);
+
+      // Always update basic exam meta
+      setSubjectCode(data.exam.subject_code);
+      setSubjectName(data.exam.subject_name);
+      setExamName(data.exam.exam_type);
+      setSemester(data.exam.semester);
+
+      const hasAnyData =
+        data.questions.length > 0 ||
+        data.students.length > 0 ||
+        data.marks.length > 0;
+
+      // 🔹 Only override table data if something was actually saved before
+      if (hasAnyData) {
+        // Build questions
+        const qs: Question[] = data.questions.map((q) => ({
+          id: q.id,
+          label: q.label,
+          maxMarks: q.max_marks,
+        }));
+        setQuestions(qs);
+
+        // Build students
+        const ss: Student[] = data.students.map((s) => ({
+          id: s.id,
+          rollNo: s.roll_no,
+          name: s.name,
+          absent: s.absent,
+        }));
+        setStudents(ss);
+
+        // Build marks map
+        const m: MarksMap = {};
+        data.marks.forEach((mk) => {
+          const key = `${mk.student_id}-${mk.question_id}`;
+          m[key] = mk.marks === null ? "" : mk.marks;
+        });
+        setMarks(m);
+      }
+    } catch (err) {
+      console.error("Failed to load exam marks", err);
+    }
+  }
+
+  loadExam();
+}, [examId]);
+
+  
   function handleMarkChange(
     studentId: number,
     questionId: number,
     value: string
   ) {
+    const student = students.find((s) => s.id === studentId);
+    if (student?.absent) return; // ignore changes if absent
+
     if (value === "") {
       setMarks((prev) => ({ ...prev, [keyFor(studentId, questionId)]: "" }));
       return;
@@ -71,9 +139,10 @@ export default function MarksEntry() {
     }));
   }
 
-  function studentTotal(studentId: number) {
+  function studentTotal(student: Student) {
+    if (student.absent) return 0;
     return questions.reduce((sum, q) => {
-      const v = marks[keyFor(studentId, q.id)];
+      const v = marks[keyFor(student.id, q.id)];
       return sum + (typeof v === "number" ? v : 0);
     }, 0);
   }
@@ -92,6 +161,7 @@ export default function MarksEntry() {
         id: Date.now(),
         rollNo: newStudentRoll.trim(),
         name: newStudentName.trim(),
+        absent: false,
       },
     ]);
     setNewStudentRoll("");
@@ -114,22 +184,50 @@ export default function MarksEntry() {
     setNewQuestionMax(10);
   }
 
+  function toggleAbsent(studentId: number) {
+    setStudents((prev) =>
+      prev.map((s) => (s.id === studentId ? { ...s, absent: !s.absent } : s))
+    );
+  }
+
   // Export CSV client-side
   function handleExportCSV() {
     const header = [
       "Roll No",
       "Name",
+      "Semester",
+      "Exam Type",
       ...questions.map((q) => `${q.label} (/${q.maxMarks})`),
       `Total (/${maxTotal()})`,
     ];
 
     const rows = students.map((s) => {
-      const cells = questions.map((q) => {
-        const v = marks[keyFor(s.id, q.id)];
-        return typeof v === "number" ? String(v) : "";
-      });
-      const total = studentTotal(s.id);
-      return [s.rollNo, s.name, ...cells, String(total)];
+      if (s.absent) {
+        // Mark absent: keep cells blank, total = AB
+        const emptyCells = questions.map(() => "");
+        return [
+          s.rollNo,
+          s.name,
+          String(semester),
+          examName,
+          ...emptyCells,
+          "AB",
+        ];
+      } else {
+        const cells = questions.map((q) => {
+          const v = marks[keyFor(s.id, q.id)];
+          return typeof v === "number" ? String(v) : "";
+        });
+        const total = studentTotal(s);
+        return [
+          s.rollNo,
+          s.name,
+          String(semester),
+          examName,
+          ...cells,
+          String(total),
+        ];
+      }
     });
 
     const csvContent = [header, ...rows].map((row) => row.join(",")).join("\n");
@@ -137,15 +235,71 @@ export default function MarksEntry() {
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
 
-    const a = document.createElement("a");
-    a.href = url;
     const safeSubject = subjectCode || "Subject";
     const safeExam = examName || "Exam";
-    a.download = `${safeSubject}_${safeExam}_marks.csv`;
+    const safeSem = `Sem${semester}`;
+    const safeName = subjectName || "Marks";
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${safeSubject}_${safeName}_${safeExam}_${safeSem}_marks.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
+  async function handleSaveToServer() {
+    if (!examId || examId <= 0) {
+      alert(
+        "This exam is not linked to backend yet. Create it from Teacher Dashboard to save."
+      );
+      return;
+    }
+
+    const questionsPayload: QuestionPayload[] = questions.map((q) => ({
+      label: q.label,
+      max_marks: q.maxMarks,
+    }));
+
+    const studentsPayload: StudentMarksPayload[] = students.map((s) => {
+      const marksMap: Record<string, number | null> = {};
+      questions.forEach((q) => {
+        const v = marks[keyFor(s.id, q.id)];
+        if (s.absent) {
+          marksMap[q.label] = null;
+        } else {
+          marksMap[q.label] =
+            typeof v === "number"
+              ? v
+              : v === "" || v === undefined
+              ? null
+              : null;
+        }
+      });
+      return {
+        roll_no: s.rollNo,
+        name: s.name,
+        absent: !!s.absent,
+        marks: marksMap,
+      };
+    });
+
+    try {
+      await saveExamMarks(examId, {
+        subject_code: subjectCode,
+        subject_name: subjectName,
+        exam_type: examName,
+        semester,
+        questions: questionsPayload,
+        students: studentsPayload,
+      });
+      alert("Marks saved to server successfully ✅");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save marks to server.");
+    }
+  }
+
+  
   return (
     <div className="space-y-6">
       {/* Top bar: exam info */}
@@ -154,6 +308,10 @@ export default function MarksEntry() {
           <h1 className="text-2xl font-bold text-white">Marks entry</h1>
           <p className="text-xs text-slate-400">
             Roll-no & question-wise marks for a single exam.
+          </p>
+          <p className="text-xs text-slate-300 mt-1">
+            <span className="font-semibold">{subjectCode}</span> —{" "}
+            <span>{subjectName}</span> · Sem {semester}
           </p>
         </div>
 
@@ -167,17 +325,40 @@ export default function MarksEntry() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-slate-400">Exam type:</span>
+            <span className="text-slate-400">Subject name</span>
+            <input
+              value={subjectName}
+              onChange={(e) => setSubjectName(e.target.value)}
+              className="w-40 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400">Exam type</span>
             <select
               value={examName}
               onChange={(e) => setExamName(e.target.value)}
-              className="w-32 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
               <option value="Internal">Internal</option>
               <option value="External">External</option>
               <option value="Practical">Practical</option>
               <option value="ATKT">ATKT</option>
               <option value="Other">Other</option>
+            </select>
+          </div>
+          {/* Semester dropdown */}
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400">Semester</span>
+            <select
+              value={semester}
+              onChange={(e) => setSemester(Number(e.target.value))}
+              className="w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              {Array.from({ length: 8 }, (_, i) => i + 1).map((sem) => (
+                <option key={sem} value={sem}>
+                  Sem {sem}
+                </option>
+              ))}
             </select>
           </div>
           <div className="flex items-center gap-2">
@@ -256,6 +437,7 @@ export default function MarksEntry() {
             <tr className="border-b border-slate-800 text-slate-300">
               <th className="px-3 py-2 text-left font-medium">Roll no</th>
               <th className="px-3 py-2 text-left font-medium">Name</th>
+              <th className="px-3 py-2 text-center font-medium">Absent</th>
               {questions.map((q) => (
                 <th
                   key={q.id}
@@ -279,13 +461,30 @@ export default function MarksEntry() {
                 key={s.id}
                 className={
                   "border-b border-slate-900" +
-                  (rowIdx % 2 === 0 ? " bg-slate-950/40" : "")
+                  (s.absent
+                    ? " bg-slate-900/60"
+                    : rowIdx % 2 === 0
+                    ? " bg-slate-950/40"
+                    : "")
                 }
               >
                 <td className="px-3 py-2 font-mono text-slate-200">
                   {s.rollNo}
                 </td>
                 <td className="px-3 py-2 text-slate-100">{s.name}</td>
+
+                {/* Absent toggle */}
+                <td className="px-3 py-2 text-center">
+                  <label className="inline-flex items-center gap-1 text-[11px] text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={!!s.absent}
+                      onChange={() => toggleAbsent(s.id)}
+                      className="h-3 w-3 rounded border-slate-600 text-rose-400"
+                    />
+                    <span>AB</span>
+                  </label>
+                </td>
 
                 {questions.map((q) => {
                   const v = marks[keyFor(s.id, q.id)];
@@ -299,14 +498,20 @@ export default function MarksEntry() {
                         onChange={(e) =>
                           handleMarkChange(s.id, q.id, e.target.value)
                         }
-                        className="w-16 rounded-md border border-slate-700 bg-slate-900 px-1 py-1 text-center text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        disabled={!!s.absent}
+                        className={
+                          "w-16 rounded-md border px-1 py-1 text-center text-[11px] focus:outline-none focus:ring-1 " +
+                          (s.absent
+                            ? "border-slate-800 bg-slate-900 text-slate-500"
+                            : "border-slate-700 bg-slate-900 text-slate-100 focus:ring-indigo-500")
+                        }
                       />
                     </td>
                   );
                 })}
 
                 <td className="px-3 py-2 text-center font-semibold text-slate-100">
-                  {studentTotal(s.id)}
+                  {s.absent ? "AB" : studentTotal(s)}
                 </td>
               </tr>
             ))}
@@ -329,10 +534,18 @@ export default function MarksEntry() {
         <div className="flex gap-3">
           <button
             type="button"
-            className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-100 hover:bg-slate-800"
+            disabled={!examId || examId <= 0}
+            onClick={handleSaveToServer}
+            className={
+              "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +
+              (examId && examId > 0
+                ? "bg-slate-900 text-slate-100 hover:bg-slate-800"
+                : "bg-slate-900/60 text-slate-500 cursor-not-allowed")
+            }
           >
             Save to server
           </button>
+
           <button
             type="button"
             onClick={handleExportCSV}
