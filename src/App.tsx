@@ -41,7 +41,15 @@ export default function App() {
           <Route
             path="/marks-entry"
             element={
-              <ProtectedRoute allowedRoles={["teacher"]}>
+              <ProtectedRoute allowedRoles={["teacher", "admin"]}>
+                <MarksEntry />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/marks-view"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
                 <MarksEntry />
               </ProtectedRoute>
             }

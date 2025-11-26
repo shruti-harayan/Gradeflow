@@ -1,7 +1,13 @@
 // src/pages/MarksEntry.tsx
 import React from "react";
 import { useSearchParams } from "react-router-dom";
-import {saveExamMarks,type QuestionPayload,type StudentMarksPayload,getExamMarks,type ExamMarksOut} from "../services/examService";
+import {
+  saveExamMarks,
+  type QuestionPayload,
+  type StudentMarksPayload,
+  getExamMarks,
+  type ExamMarksOut,
+} from "../services/examService";
 
 type Student = {
   id: number;
@@ -34,6 +40,7 @@ export default function MarksEntry() {
 
   const examIdParam = searchParams.get("examId");
   const examId = examIdParam ? Number(examIdParam) : 0;
+  const isAdminView = searchParams.get("adminView") === "1";
 
   const initialSubject = searchParams.get("subject") ?? "CS101";
   const initialSubjectName = searchParams.get("subjectName") ?? "Algorithms";
@@ -61,59 +68,58 @@ export default function MarksEntry() {
     `${studentId}-${questionId}`;
 
   React.useEffect(() => {
-  async function loadExam() {
-    if (!examId || examId <= 0) return;
+    async function loadExam() {
+      if (!examId || examId <= 0) return;
 
-    try {
-      const data: ExamMarksOut = await getExamMarks(examId);
+      try {
+        const data: ExamMarksOut = await getExamMarks(examId);
 
-      // Always update basic exam meta
-      setSubjectCode(data.exam.subject_code);
-      setSubjectName(data.exam.subject_name);
-      setExamName(data.exam.exam_type);
-      setSemester(data.exam.semester);
+        // Always update basic exam meta
+        setSubjectCode(data.exam.subject_code);
+        setSubjectName(data.exam.subject_name);
+        setExamName(data.exam.exam_type);
+        setSemester(data.exam.semester);
 
-      const hasAnyData =
-        data.questions.length > 0 ||
-        data.students.length > 0 ||
-        data.marks.length > 0;
+        const hasAnyData =
+          data.questions.length > 0 ||
+          data.students.length > 0 ||
+          data.marks.length > 0;
 
-      // 🔹 Only override table data if something was actually saved before
-      if (hasAnyData) {
-        // Build questions
-        const qs: Question[] = data.questions.map((q) => ({
-          id: q.id,
-          label: q.label,
-          maxMarks: q.max_marks,
-        }));
-        setQuestions(qs);
+        // 🔹 Only override table data if something was actually saved before
+        if (hasAnyData) {
+          // Build questions
+          const qs: Question[] = data.questions.map((q) => ({
+            id: q.id,
+            label: q.label,
+            maxMarks: q.max_marks,
+          }));
+          setQuestions(qs);
 
-        // Build students
-        const ss: Student[] = data.students.map((s) => ({
-          id: s.id,
-          rollNo: s.roll_no,
-          name: s.name,
-          absent: s.absent,
-        }));
-        setStudents(ss);
+          // Build students
+          const ss: Student[] = data.students.map((s) => ({
+            id: s.id,
+            rollNo: s.roll_no,
+            name: s.name,
+            absent: s.absent,
+          }));
+          setStudents(ss);
 
-        // Build marks map
-        const m: MarksMap = {};
-        data.marks.forEach((mk) => {
-          const key = `${mk.student_id}-${mk.question_id}`;
-          m[key] = mk.marks === null ? "" : mk.marks;
-        });
-        setMarks(m);
+          // Build marks map
+          const m: MarksMap = {};
+          data.marks.forEach((mk) => {
+            const key = `${mk.student_id}-${mk.question_id}`;
+            m[key] = mk.marks === null ? "" : mk.marks;
+          });
+          setMarks(m);
+        }
+      } catch (err) {
+        console.error("Failed to load exam marks", err);
       }
-    } catch (err) {
-      console.error("Failed to load exam marks", err);
     }
-  }
 
-  loadExam();
-}, [examId]);
+    loadExam();
+  }, [examId]);
 
-  
   function handleMarkChange(
     studentId: number,
     questionId: number,
@@ -152,6 +158,8 @@ export default function MarksEntry() {
   }
 
   function handleAddStudent(e: React.FormEvent) {
+    if (isAdminView) return;
+
     e.preventDefault();
     if (!newStudentRoll.trim() || !newStudentName.trim()) return;
 
@@ -169,6 +177,8 @@ export default function MarksEntry() {
   }
 
   function handleAddQuestion(e: React.FormEvent) {
+    if (isAdminView) return;
+
     e.preventDefault();
     if (!newQuestionMax || newQuestionMax <= 0) return;
 
@@ -299,7 +309,6 @@ export default function MarksEntry() {
     }
   }
 
-  
   return (
     <div className="space-y-6">
       {/* Top bar: exam info */}
@@ -314,6 +323,12 @@ export default function MarksEntry() {
             <span>{subjectName}</span> · Sem {semester}
           </p>
         </div>
+
+        {isAdminView && (
+          <span className="ml-3 inline-block rounded-full bg-yellow-600 px-2 py-1 text-xs font-semibold text-black">
+            Admin view — read only
+          </span>
+        )}
 
         <div className="flex flex-wrap gap-3 text-xs">
           <div className="flex items-center gap-2">
@@ -395,7 +410,13 @@ export default function MarksEntry() {
           </div>
           <button
             type="submit"
-            className="mt-1 inline-flex items-center justify-center rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-600"
+            onClick={isAdminView ? (e) => e.preventDefault() : handleAddStudent}
+            disabled={isAdminView}
+            className={`mt-1 inline-flex items-center justify-center rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-600 ${
+              isAdminView
+                ? "opacity-50 cursor-not-allowed hover:bg-indigo-500"
+                : ""
+            }`}
           >
             Add student
           </button>
@@ -423,7 +444,13 @@ export default function MarksEntry() {
           </div>
           <button
             type="submit"
-            className="mt-1 inline-flex items-center justify-center rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600"
+            onClick={isAdminView ? (e) => e.preventDefault() : handleAddQuestion}
+            disabled={isAdminView}
+            className={`mt-1 inline-flex items-center justify-center rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 ${
+              isAdminView
+                ? "opacity-50 cursor-not-allowed hover:bg-emerald-500"
+                : ""
+            }`}
           >
             Add question
           </button>
@@ -498,7 +525,7 @@ export default function MarksEntry() {
                         onChange={(e) =>
                           handleMarkChange(s.id, q.id, e.target.value)
                         }
-                        disabled={!!s.absent}
+                        disabled={isAdminView || !!s.absent}
                         className={
                           "w-16 rounded-md border px-1 py-1 text-center text-[11px] focus:outline-none focus:ring-1 " +
                           (s.absent
@@ -532,19 +559,26 @@ export default function MarksEntry() {
           </span>
         </div>
         <div className="flex gap-3">
-          <button
-            type="button"
-            disabled={!examId || examId <= 0}
-            onClick={handleSaveToServer}
-            className={
-              "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +
-              (examId && examId > 0
-                ? "bg-slate-900 text-slate-100 hover:bg-slate-800"
-                : "bg-slate-900/60 text-slate-500 cursor-not-allowed")
-            }
-          >
-            Save to server
-          </button>
+          {/* Save button - hide for admin */}
+          {!isAdminView ? (
+            <button
+              type="button"
+              disabled={!examId || examId <= 0}
+              onClick={handleSaveToServer}
+              className={
+                "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +
+                (examId && examId > 0
+                  ? "bg-slate-900 text-slate-100 hover:bg-slate-800"
+                  : "bg-slate-900/60 text-slate-500 cursor-not-allowed")
+              }
+            >
+              Save to server
+            </button>
+          ) : (
+            <div className="text-xs text-slate-400 px-4 py-2">
+              Read-only view
+            </div>
+          )}
 
           <button
             type="button"

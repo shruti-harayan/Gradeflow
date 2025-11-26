@@ -68,6 +68,10 @@ export async function getExamMarks(examId: number) {
   return res.data;
 }
 
+export async function getExams() {
+  const res = await api.get<ExamOut[]>("/exams");
+  return res.data;
+}
 
 export async function createExam(payload: ExamCreatePayload) {
   const res = await api.post<ExamOut>("/exams", payload);
@@ -77,4 +81,28 @@ export async function createExam(payload: ExamCreatePayload) {
 export async function saveExamMarks(examId: number, payload: SaveMarksPayload) {
   const res = await api.post(`/exams/${examId}/marks`, payload);
   return res.data;
+}
+
+export async function downloadExamCsv(examId: number, filename?: string) {
+  const res = await api.get(`/exams/${examId}/export`, {
+    responseType: "blob",
+  });
+
+  // If filename not provided, try to use server-provided filename from headers
+  let finalName = filename;
+  const cd = res.headers?.["content-disposition"] as string | undefined;
+  if (!finalName && cd) {
+    const match = cd.match(/filename="?(.+?)"?($|;)/);
+    if (match) finalName = match[1];
+  }
+  // Fallback name when nothing else
+  if (!finalName) finalName = `exam_${examId}_marks.csv`;
+
+  const blob = new Blob([res.data], { type: "text/csv" });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = finalName;
+  link.click();
+  window.URL.revokeObjectURL(url);
 }

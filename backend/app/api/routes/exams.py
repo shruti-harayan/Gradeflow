@@ -1,13 +1,21 @@
 # backend/app/api/routes/exams.py
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from app.database import get_db
-from app import models
 from app.schemas.exam_schema import ExamCreate, ExamOut, MarksSaveRequest,ExamMarksOut
 from app.models.exam import Exam, Question, Student, Mark
+from sqlalchemy.orm import Session
+from app.database import get_db
+from fastapi.responses import StreamingResponse
+import csv
+from io import StringIO
+from app import models
+from typing import List
 
 router = APIRouter()
 
+@router.get("/", response_model=List[ExamOut])
+def list_exams(db: Session = Depends(get_db)):
+    exams = db.query(Exam).order_by(Exam.created_at.desc()).all()
+    return exams
 
 @router.post("/", response_model=ExamOut)
 def create_exam(exam_in: ExamCreate, db: Session = Depends(get_db)):
@@ -178,3 +186,51 @@ def get_exam_marks(exam_id: int, db: Session = Depends(get_db)):
         "students": students,
         "marks": marks_out,
     }
+
+@router.get("/{exam_id}/export")
+def export_exam_csv(exam_id: int, db: Session = Depends(get_db)):
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    questions = db.query(Question).filter(Question.exam_id == exam_id).order_by(Question.order.asc()).all()
+    students = db.query(Student).filter(Student.exam_id == exam_id).order_by(Student.roll_no.asc()).all()
+    marks = db.query(Mark).filter(Mark.exam_id == exam_id).all()
+
+    # Marks lookup for quick fill
+    mark_map = {(m.student_id, m.question_id): m.marks for m in marks}
+
+    output = StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    question_headers = [q.label for q in questions]
+    writer.writerow(["Roll No", "Name", "Absent"] + question_headers + ["Total"])
+
+    # Data rows
+    for s in students:
+        row = [
+            s.roll_no,
+            s.name,
+            "AB" if s.absent else "",
+        ]
+        total = 0
+        for q in questions:
+            mk = mark_map.get((s.id, q.id))
+            if mk is None:
+                row.append("")
+            else:
+                row.append(mk)
+                total += mk
+
+        row.append(total)
+        writer.writerow(row)
+
+    output.seek(0)
+    filename = f"{exam.subject_code}_{exam.exam_type}_Sem{exam.semester}.csv"
+
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

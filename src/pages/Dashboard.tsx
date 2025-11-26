@@ -1,11 +1,11 @@
 // src/pages/Dashboard.tsx
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { createExam, type ExamType } from "../services/examService";
+import { createExam, getExams, type ExamType } from "../services/examService";
 
 type SubjectCard = {
-  id: number;         // UI id
-  examId?: number;    // backend exam id
+  id: number;         // UI id 
+  examId?: number;    // backend exam id 
   code: string;
   name: string;
   students: number;
@@ -13,8 +13,6 @@ type SubjectCard = {
   semester: number;
   lastUpdated?: string;
 };
-
-const STORAGE_KEY = "gf_subjects";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -28,24 +26,37 @@ export default function Dashboard() {
   const [newStudents, setNewStudents] = React.useState<number | "">("");
   const [newSemester, setNewSemester] = React.useState<number>(1);
 
-  // Load from localStorage on first mount
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // 🔹 Load exams from backend on first mount
   React.useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
+    async function load() {
       try {
-        const parsed = JSON.parse(stored) as SubjectCard[];
-        setSubjects(parsed);
-      } catch {
-        // ignore bad data
-        setSubjects([]);
+        const exams = await getExams();
+        const mapped: SubjectCard[] = exams.map((exam) => ({
+          id: exam.id,
+          examId: exam.id,
+          code: exam.subject_code,
+          name: exam.subject_name,
+          students: exam.students_count || 0,
+          examType: exam.exam_type as ExamType,
+          semester: exam.semester,
+          lastUpdated: exam.created_at
+            ? new Date(exam.created_at).toLocaleString()
+            : undefined,
+        }));
+        setSubjects(mapped);
+      } catch (err) {
+        console.error(err);
+        setError("Failed to load exams from server.");
+      } finally {
+        setLoading(false);
       }
     }
-  }, []);
 
-  // Save to localStorage whenever subjects change
-  React.useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(subjects));
-  }, [subjects]);
+    load();
+  }, []);
 
   function resetForm() {
     setNewCode("");
@@ -71,9 +82,9 @@ export default function Dashboard() {
       students_count: studentsCount,
     });
 
-    // 2) Create local card
+    // 2) Create local card so it appears immediately
     const newSubject: SubjectCard = {
-      id: Date.now(),
+      id: exam.id,
       examId: exam.id,
       code: exam.subject_code,
       name: exam.subject_name,
@@ -122,7 +133,7 @@ export default function Dashboard() {
     if (!ok) return;
 
     setSubjects((prev) => prev.filter((s) => s.id !== id));
-    // TODO (optional): also call backend to delete exam when you add that endpoint
+    // TODO: also call backend DELETE /exams/{id} when you add it
   }
 
   return (
@@ -144,6 +155,16 @@ export default function Dashboard() {
           {isCreating ? "Close form" : "+ New subject / exam"}
         </button>
       </div>
+
+      {/* Optional error / loading states */}
+      {loading && (
+        <p className="text-xs text-slate-400">Loading exams from server…</p>
+      )}
+      {error && (
+        <p className="text-xs text-red-400">
+          {error} (check backend is running on port 8000)
+        </p>
+      )}
 
       {/* Create Exam panel */}
       {isCreating && (
@@ -321,7 +342,7 @@ export default function Dashboard() {
           </div>
         ))}
 
-        {subjects.length === 0 && (
+        {!loading && subjects.length === 0 && (
           <p className="text-xs text-slate-500">
             No exams yet. Click{" "}
             <span className="font-semibold text-emerald-300">
