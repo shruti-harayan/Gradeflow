@@ -17,3 +17,4 @@ export function setAuthToken(token: string | null) {
     localStorage.removeItem("gf_token");
   }
 }
+

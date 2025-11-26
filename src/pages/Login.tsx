@@ -1,12 +1,14 @@
-// src/pages/Login.tsx 
+// src/pages/Login.tsx
 import React from "react";
-import { Link ,useNavigate} from "react-router-dom";
-import GoogleSignIn from "../components/GoogleSignIn";
+import { Link, useNavigate } from "react-router-dom";
+//import GoogleSignIn from "../components/GoogleSignIn";
 import { login } from "../services/authService";
-
+import GooglePopupSignIn from "../components/GooglePopupSignIn";
+import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   const navigate = useNavigate();
+  const { loginFromResponse } = useAuth();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
@@ -18,20 +20,22 @@ export default function Login() {
     setError(null);
     setLoading(true);
 
-
     try {
-      const res = await login(email, password);
+      const data = await login(email, password); // call backend
+      // save token & user into context (also sets axios header/localStorage)
+      loginFromResponse(data);
 
-      // role-based redirect
-      if (res.user.role === "admin") {
-        navigate("/admin");
-      } else {
-        navigate("/dashboard");
-      }
-
-    } catch (err) {
-      console.error(err);
-      setError("Invalid email or password");
+      // navigate based on role
+      const role = data.user?.role ?? "teacher";
+      if (role === "admin") navigate("/admin");
+      else navigate("/dashboard");
+    } catch (err: any) {
+      console.error("login error", err);
+      setError(
+        err?.response?.data?.detail ??
+          err?.message ??
+          "Login failed. Check credentials and try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -106,7 +110,7 @@ export default function Login() {
             disabled={loading}
             className="mt-2 w-full rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/40 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-900 transition-colors"
           >
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Logging in..." : "Login"}
           </button>
         </form>
 
@@ -118,7 +122,13 @@ export default function Login() {
         </div>
 
         {/* Google login */}
-        <GoogleSignIn/>
+        <div
+          onClick={(e) => {
+            e.preventDefault();
+          }}
+        >
+          <GooglePopupSignIn />
+        </div>
 
         {/* Footer text */}
         <p className="mt-5 text-xs text-center text-slate-400">

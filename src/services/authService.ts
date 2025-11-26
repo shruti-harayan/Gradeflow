@@ -42,8 +42,14 @@ export async function signup(
   return res.data;
 }
 
-export async function loginWithGoogle(id_token: string) {
-  const res = await api.post<TokenResponse>("/auth/google", { id_token });
-  storeAuth(res.data);
-  return res.data;
+
+export async function googleSignIn(payload: { id_token?: string; access_token?: string }) {
+  // prefer id_token, otherwise access_token
+  const body: Record<string,string> = {};
+  if (payload.id_token) body.id_token = payload.id_token;
+  else if (payload.access_token) body.access_token = payload.access_token;
+  else throw new Error("googleSignIn requires id_token or access_token");
+
+  return api.post("/auth/google", body);
 }
+

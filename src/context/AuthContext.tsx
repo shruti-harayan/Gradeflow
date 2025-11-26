@@ -2,6 +2,7 @@
 import React from "react";
 import { type User, type TokenResponse } from "../services/authService";
 import { setAuthToken } from "../services/api";
+import { api } from "../services/api";
 
 type AuthContextType = {
   user: User | null;
@@ -17,6 +18,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = React.useState<User | null>(null);
   const [token, setToken] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
+
+  
 
   React.useEffect(() => {
     // Restore from localStorage on page refresh

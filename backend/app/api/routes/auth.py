@@ -1,116 +1,130 @@
-# backend/app/api/routes/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+import requests
 from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
+from google.auth.transport import requests as grequests
 
 from app.database import get_db
-from app import models
-from app.schemas.user_schema import UserCreate, UserLogin, UserOut, Token
-from app.core import security
+from app.models import User
+from app.core.security import create_access_token
+from app.core.config import GOOGLE_CLIENT_ID
+
+from passlib.hash import argon2
 
 router = APIRouter()
 
-
-@router.post("/signup", response_model=UserOut)
-def signup(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing = (
-        db.query(models.user.User)
-        .filter(models.user.User.email == user_in.email)
-        .first()
-    )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
-
-    user = models.user.User(
-        name=user_in.name,
-        email=user_in.email,
-        role=user_in.role,
-        hashed_password=security.hash_password(user_in.password),
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-@router.post("/login", response_model=Token)
-def login(user_in: UserLogin, db: Session = Depends(get_db)):
-    user = (
-        db.query(models.user.User)
-        .filter(models.user.User.email == user_in.email)
-        .first()
-    )
-    if not user or not user.hashed_password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid credentials"
-        )
-    if not security.verify_password(user_in.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid credentials"
-        )
-
-    access_token = security.create_access_token(
-        {"sub": str(user.id), "role": user.role}
-    )
-    return Token(access_token=access_token, user=user)
-
-
 class GoogleTokenIn(BaseModel):
-    id_token: str
+    id_token: str | None = None
+    access_token: str | None = None
 
 
-@router.post("/google", response_model=Token)
+@router.post("/google")
 def google_login(payload: GoogleTokenIn, db: Session = Depends(get_db)):
-    # Verify token with Google
-    try:
-        idinfo = id_token.verify_oauth2_token(
-            payload.id_token, google_requests.Request()
-        )
-        if not idinfo.get("email_verified"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Google email not verified",
+
+    # -----------------------
+    # 1. Handle id_token case
+    # -----------------------
+    if payload.id_token:
+        try:
+            idinfo = id_token.verify_oauth2_token(
+                payload.id_token,
+                grequests.Request(),
+                GOOGLE_CLIENT_ID
             )
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid ID token")
 
-        email = idinfo["email"]
-        name = idinfo.get("name", email)
-        sub = idinfo["sub"]
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid Google token",
+        email = idinfo.get("email")
+        name = idinfo.get("name") or "Google User"
+        google_sub = idinfo.get("sub")
+
+    # --------------------------
+    # 2. Handle access_token case
+    # --------------------------
+    elif payload.access_token:
+        resp = requests.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            params={"access_token": payload.access_token},
+            timeout=5
         )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Invalid access token")
 
-    # Look up by Google sub or fallback to email
-    User = models.user.User
-    user = db.query(User).filter(User.google_sub == sub).first()
-    if not user:
-        user = db.query(User).filter(User.email == email).first()
+        profile = resp.json()
+        email = profile.get("email")
+        name = profile.get("name") or "Google User"
+        google_sub = profile.get("sub") or profile.get("id")
 
-    # If user doesn't exist, create a teacher by default
+    else:
+        raise HTTPException(status_code=400, detail="Token missing")
+
+    # --------------------------------
+    # 3. Find or create User in DB
+    # --------------------------------
+    user = db.query(User).filter(User.email == email).first()
     if not user:
         user = User(
-            name=name,
             email=email,
-            role="teacher",
-            google_sub=sub,
+            full_name=name,
+            password="",        # Not used for Google accounts
+            role="teacher",     # Default role — you may ask user to choose
+            google_sub=google_sub
         )
         db.add(user)
         db.commit()
         db.refresh(user)
-    else:
-        # attach google_sub if missing
-        if not user.google_sub:
-            user.google_sub = sub
-            db.commit()
-            db.refresh(user)
 
-    access_token = security.create_access_token(
-        {"sub": str(user.id), "role": user.role}
+    # --------------------------------
+    # 4. Create JWT using your EXISTING method
+    # --------------------------------
+    access_token = create_access_token({"sub": str(user.id)})
+
+
+    return {"access_token": access_token, "user": user}
+
+
+class SignupIn(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    role: str = "teacher"
+
+@router.post("/signup")
+def signup(payload: SignupIn, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == payload.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    hashed_password = argon2.hash(payload.password)
+
+    user = User(
+        full_name=payload.full_name,
+        email=payload.email,
+        password=hashed_password,
+        role=payload.role,
     )
-    return Token(access_token=access_token, user=user)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    access_token = create_access_token({"sub": str(user.id)})
+    return {"access_token": access_token, "user": user}
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+@router.post("/login")
+def login(payload: LoginIn, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+
+    # verify argon2 hash
+    if not argon2.verify(payload.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+
+    access_token = create_access_token({"sub": str(user.id)})
+    return {"access_token": access_token, "user": user}

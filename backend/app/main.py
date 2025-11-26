@@ -25,7 +25,6 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(exams.router, prefix="/exams", tags=["exams"])
 
-
 @app.get("/")
 async def root():
     return {"status": "ok"}
