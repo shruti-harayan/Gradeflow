@@ -1,9 +1,7 @@
 // src/pages/Login.tsx
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
-//import GoogleSignIn from "../components/GoogleSignIn";
+import { useNavigate } from "react-router-dom";
 import { login } from "../services/authService";
-import GooglePopupSignIn from "../components/GooglePopupSignIn";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
@@ -74,12 +72,6 @@ export default function Login() {
               <label className="text-sm font-medium text-slate-200">
                 Password
               </label>
-              <button
-                type="button"
-                className="text-xs text-indigo-300 hover:text-indigo-200"
-              >
-                Forgot?
-              </button>
             </div>
 
             <div className="relative mt-1">
@@ -114,32 +106,6 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="my-5 flex items-center gap-3 text-xs text-slate-500">
-          <div className="h-px flex-1 bg-slate-700" />
-          <span>or</span>
-          <div className="h-px flex-1 bg-slate-700" />
-        </div>
-
-        {/* Google login */}
-        <div
-          onClick={(e) => {
-            e.preventDefault();
-          }}
-        >
-          <GooglePopupSignIn />
-        </div>
-
-        {/* Footer text */}
-        <p className="mt-5 text-xs text-center text-slate-400">
-          Don&apos;t have an account?{" "}
-          <Link
-            to="/signup"
-            className="font-medium text-indigo-300 hover:text-indigo-200"
-          >
-            Create one
-          </Link>
-        </p>
       </div>
     </div>
   );

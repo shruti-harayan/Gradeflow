@@ -2,7 +2,7 @@
 import React from "react";
 import { type User, type TokenResponse } from "../services/authService";
 import { setAuthToken } from "../services/api";
-import { api } from "../services/api";
+
 
 type AuthContextType = {
   user: User | null;
@@ -19,8 +19,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
 
-  
-
   React.useEffect(() => {
     // Restore from localStorage on page refresh
     const storedToken = localStorage.getItem("gf_token");
@@ -28,6 +26,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (storedToken) {
       setToken(storedToken);
+      // helper to set axios header (your api helper)
       setAuthToken(storedToken);
     }
     if (storedUser) {
@@ -41,11 +40,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   function loginFromResponse(data: TokenResponse) {
-    setToken(data.access_token);
-    setUser(data.user);
-    setAuthToken(data.access_token);
-    localStorage.setItem("gf_token", data.access_token);
-    localStorage.setItem("gf_user", JSON.stringify(data.user));
+    const t = data.access_token;
+    const u = data.user;
+    // persist
+    localStorage.setItem("gf_token", t);
+    localStorage.setItem("gf_user", JSON.stringify(u));
+    // set axios default header for future requests
+    setAuthToken(t);
+    // update React state
+    setToken(t);
+    setUser(u);
   }
 
   function logout() {

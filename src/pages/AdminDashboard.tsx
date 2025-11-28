@@ -5,7 +5,7 @@ import {
   downloadExamCsv,
   type ExamOut,
 } from "../services/examService";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function AdminDashboard() {
   const [exams, setExams] = React.useState<ExamOut[]>([]);
@@ -52,7 +52,7 @@ export default function AdminDashboard() {
       subjectName: e.subject_name,
       exam: e.exam_type,
       sem: String(e.semester),
-      adminView: "1", // <-- add this for admin read-only mode
+      adminView: "1",
     }).toString();
 
     navigate(`/marks-entry?${q}`);
@@ -67,6 +67,13 @@ export default function AdminDashboard() {
       <p className="text-xs text-slate-400">
         Manage exams and download CSV reports created by teachers.
       </p>
+      
+      <Link
+        to="/admin/create-teacher"
+        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+      >
+        + Create Teacher
+      </Link>
 
       <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
         {exams.map((e) => (

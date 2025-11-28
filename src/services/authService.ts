@@ -8,6 +8,7 @@ export interface User {
   name: string;
   email: string;
   role: Role;
+  is_frozen?: boolean;
 }
 
 export interface TokenResponse {

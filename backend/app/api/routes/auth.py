@@ -1,7 +1,8 @@
+from datetime import datetime
+import secrets,requests
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
-import requests
 from google.oauth2 import id_token
 from google.auth.transport import requests as grequests
 
@@ -11,12 +12,83 @@ from app.core.security import create_access_token
 from app.core.config import GOOGLE_CLIENT_ID
 
 from passlib.hash import argon2
+from app.api.dependencies import admin_required
+from typing import List
 
 router = APIRouter()
 
 class GoogleTokenIn(BaseModel):
     id_token: str | None = None
     access_token: str | None = None
+
+class AdminCreateTeacher(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    role: str = "teacher"
+
+# Response schema for teacher listing
+class TeacherOut(BaseModel):
+    id: int
+    name: str | None = None
+    email: str
+    role: str
+    is_frozen: bool
+    created_at: datetime | None
+
+    class Config:
+        orm_mode = True
+
+# Reset password input schema
+class ResetPasswordIn(BaseModel):
+    new_password: str | None = None  # if None, server generates random temp pw
+
+# GET teachers
+@router.get("/admin/teachers", response_model=List[TeacherOut], dependencies=[Depends(admin_required)])
+def list_teachers(db: Session = Depends(get_db)):
+    teachers = db.query(User).filter(User.role == "teacher").all()
+    return teachers
+
+# Freeze
+@router.post("/admin/teachers/{teacher_id}/freeze", dependencies=[Depends(admin_required)])
+def freeze_teacher(teacher_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == teacher_id, User.role == "teacher").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    user.is_frozen = True
+    db.add(user)
+    db.commit()
+    return {"detail": "Teacher frozen"}
+
+# Unfreeze
+@router.post("/admin/teachers/{teacher_id}/unfreeze", dependencies=[Depends(admin_required)])
+def unfreeze_teacher(teacher_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == teacher_id, User.role == "teacher").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    user.is_frozen = False
+    db.add(user)
+    db.commit()
+    return {"detail": "Teacher unfrozen"}
+
+# Reset password (admin)
+@router.post("/admin/teachers/{teacher_id}/reset-password", dependencies=[Depends(admin_required)])
+def reset_teacher_password(teacher_id: int, payload: ResetPasswordIn, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == teacher_id, User.role == "teacher").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    # generate temp password if not provided
+    temp_pw = payload.new_password or secrets.token_urlsafe(8)
+    # hash with argon2
+    hashed = argon2.hash(temp_pw)
+    if hasattr(user, "hashed_password"):
+        setattr(user, "hashed_password", hashed)
+
+    db.add(user)
+    db.commit()
+    # Optionally: send email to teacher with temp password. For now return it in response (dev only)
+    return {"detail": "Password reset", "temporary_password": temp_pw}
 
 
 @router.post("/google")
@@ -67,7 +139,7 @@ def google_login(payload: GoogleTokenIn, db: Session = Depends(get_db)):
         user = User(
             email=email,
             full_name=name,
-            password="",        # Not used for Google accounts
+            hashed_password=None,   # Google users don't have a local password
             role="teacher",     # Default role — you may ask user to choose
             google_sub=google_sub
         )
@@ -85,7 +157,7 @@ def google_login(payload: GoogleTokenIn, db: Session = Depends(get_db)):
 
 
 class SignupIn(BaseModel):
-    full_name: str
+    name: str
     email: str
     password: str
     role: str = "teacher"
@@ -99,9 +171,9 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
     hashed_password = argon2.hash(payload.password)
 
     user = User(
-        full_name=payload.full_name,
+        name=payload.name,
         email=payload.email,
-        password=hashed_password,
+        hashed_password=hashed_password,
         role=payload.role,
     )
     db.add(user)
@@ -128,3 +200,29 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
 
     access_token = create_access_token({"sub": str(user.id)})
     return {"access_token": access_token, "user": user}
+
+
+@router.post("/admin-create-teacher")
+def admin_create_teacher(
+    payload: AdminCreateTeacher,
+    db: Session = Depends(get_db),
+    current_admin = Depends(admin_required),
+):
+    # Check duplicate
+    existing = db.query(User).filter(User.email == payload.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already exists")
+
+    hashed = argon2.hash(payload.password)
+
+    user = User(
+        name=payload.name,
+        email=payload.email,
+        hashed_password=hashed,
+        role="teacher"
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return {"detail": "Teacher created successfully", "id": user.id}

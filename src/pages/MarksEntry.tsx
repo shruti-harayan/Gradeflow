@@ -8,6 +8,7 @@ import {
   getExamMarks,
   type ExamMarksOut,
 } from "../services/examService";
+import { useAuth } from "../context/AuthContext";
 
 type Student = {
   id: number;
@@ -36,6 +37,10 @@ const initialQuestions: Question[] = [
 ];
 
 export default function MarksEntry() {
+  const { user } = useAuth(); // get logged-in user (may include is_frozen)
+  const [showFrozenMessage, setShowFrozenMessage] = React.useState(false);
+  const isFrozen = !!user?.is_frozen;
+
   const [searchParams] = useSearchParams();
 
   const examIdParam = searchParams.get("examId");
@@ -68,6 +73,10 @@ export default function MarksEntry() {
     `${studentId}-${questionId}`;
 
   React.useEffect(() => {
+    setShowFrozenMessage(isFrozen);
+  }, [isFrozen]);
+
+  React.useEffect(() => {
     async function loadExam() {
       if (!examId || examId <= 0) return;
 
@@ -85,7 +94,7 @@ export default function MarksEntry() {
           data.students.length > 0 ||
           data.marks.length > 0;
 
-        // 🔹 Only override table data if something was actually saved before
+        //  Only override table data if something was actually saved before
         if (hasAnyData) {
           // Build questions
           const qs: Question[] = data.questions.map((q) => ({
@@ -127,6 +136,7 @@ export default function MarksEntry() {
   ) {
     const student = students.find((s) => s.id === studentId);
     if (student?.absent) return; // ignore changes if absent
+    if (isFrozen) return; // do not allow edits if account frozen
 
     if (value === "") {
       setMarks((prev) => ({ ...prev, [keyFor(studentId, questionId)]: "" }));
@@ -265,6 +275,11 @@ export default function MarksEntry() {
       return;
     }
 
+    if (isFrozen) {
+      alert("Your account has been frozen by admin. You cannot save marks.");
+      return;
+    }
+
     const questionsPayload: QuestionPayload[] = questions.map((q) => ({
       label: q.label,
       max_marks: q.maxMarks,
@@ -323,11 +338,17 @@ export default function MarksEntry() {
             <span>{subjectName}</span> · Sem {semester}
           </p>
         </div>
-
         {isAdminView && (
           <span className="ml-3 inline-block rounded-full bg-yellow-600 px-2 py-1 text-xs font-semibold text-black">
             Admin view — read only
           </span>
+        )}
+
+        {/* show prominent frozen message */}
+        {showFrozenMessage && (
+          <div className="mb-4 rounded-md bg-red-900/80 p-3 text-red-100">
+            Your account has been frozen by the admin. You cannot edit marks. Contact the admin to unfreeze your account.
+          </div>
         )}
 
         <div className="flex flex-wrap gap-3 text-xs">
@@ -444,7 +465,9 @@ export default function MarksEntry() {
           </div>
           <button
             type="submit"
-            onClick={isAdminView ? (e) => e.preventDefault() : handleAddQuestion}
+            onClick={
+              isAdminView ? (e) => e.preventDefault() : handleAddQuestion
+            }
             disabled={isAdminView}
             className={`mt-1 inline-flex items-center justify-center rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 ${
               isAdminView
@@ -525,7 +548,7 @@ export default function MarksEntry() {
                         onChange={(e) =>
                           handleMarkChange(s.id, q.id, e.target.value)
                         }
-                        disabled={isAdminView || !!s.absent}
+                        disabled={isAdminView || !!s.absent || isFrozen}
                         className={
                           "w-16 rounded-md border px-1 py-1 text-center text-[11px] focus:outline-none focus:ring-1 " +
                           (s.absent
@@ -563,13 +586,14 @@ export default function MarksEntry() {
           {!isAdminView ? (
             <button
               type="button"
-              disabled={!examId || examId <= 0}
+              disabled={!examId || examId <= 0 || isFrozen}
               onClick={handleSaveToServer}
               className={
                 "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +
                 (examId && examId > 0
                   ? "bg-slate-900 text-slate-100 hover:bg-slate-800"
-                  : "bg-slate-900/60 text-slate-500 cursor-not-allowed")
+                  : "bg-slate-900/60 text-slate-500 cursor-not-allowed") +
+                (isFrozen ? " opacity-50 cursor-not-allowed" : "")
               }
             >
               Save to server

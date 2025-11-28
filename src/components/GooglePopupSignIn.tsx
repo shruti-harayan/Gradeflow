@@ -8,7 +8,7 @@ import { useAuth } from "../context/AuthContext";
 export default function GooglePopupSignIn() {
   const navigate = useNavigate();
   const { loginFromResponse } = useAuth();
-
+  
   const login = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       try {

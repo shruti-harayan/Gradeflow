@@ -8,6 +8,8 @@ import AdminDashboard from "./pages/AdminDashboard";
 import Header from "./pages/Header";
 import MarksEntry from "./pages/MarksEntry";
 import ProtectedRoute from "./components/ProtectedRoute";
+import CreateTeacher from "./pages/CreateTeacher";
+import TeacherList from "./pages/TeacherList";
 
 export default function App() {
   return (
@@ -51,6 +53,22 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={["admin"]}>
                 <MarksEntry />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/create-teacher"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <CreateTeacher />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/teachers"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <TeacherList />
               </ProtectedRoute>
             }
           />

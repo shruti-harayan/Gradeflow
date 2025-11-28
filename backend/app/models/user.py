@@ -1,5 +1,5 @@
 # backend/app/models/user.py
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -9,7 +9,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=True)  # null for Google-only accounts
-    role = Column(String, default="teacher")         # "teacher" or "admin"
-    google_sub = Column(String, unique=True, nullable=True)  # Google user id
+    hashed_password = Column(String, nullable=True)
+    role = Column(String, default="teacher")         
+    google_sub = Column(String, unique=True, nullable=True)  
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_frozen = Column(Boolean, default=False, nullable=False)
