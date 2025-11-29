@@ -3,10 +3,12 @@ import React from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   saveExamMarks,
+  finalizeExam,
   type QuestionPayload,
   type StudentMarksPayload,
   getExamMarks,
   type ExamMarksOut,
+  type ExamOut,
 } from "../services/examService";
 import { useAuth } from "../context/AuthContext";
 
@@ -39,9 +41,12 @@ const initialQuestions: Question[] = [
 export default function MarksEntry() {
   const { user } = useAuth(); // get logged-in user (may include is_frozen)
   const [showFrozenMessage, setShowFrozenMessage] = React.useState(false);
-  const isFrozen = !!user?.is_frozen;
-
+  const [exam, setExam] = React.useState<ExamOut | null>(null);
   const [searchParams] = useSearchParams();
+
+  const isFrozen = !!user?.is_frozen; // admin freeze on teacher account
+  const isFinalized = !!exam?.is_locked; // final-submitted
+  const disabled = isFrozen || isFinalized;
 
   const examIdParam = searchParams.get("examId");
   const examId = examIdParam ? Number(examIdParam) : 0;
@@ -76,6 +81,40 @@ export default function MarksEntry() {
     setShowFrozenMessage(isFrozen);
   }, [isFrozen]);
 
+  async function handleFinalize() {
+    if (!exam) {
+      console.warn("Attempted to finalize but exam is null");
+      return;
+    }
+
+    if (disabled) {
+      // if frozen or already finalized, don't proceed
+      alert(
+        "Final submission not allowed: account frozen or exam already finalized."
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "This will final-submit the exam. You will not be able to edit marks afterwards. Proceed?"
+      )
+    )
+      return;
+
+    try {
+      await finalizeExam(exam.id);
+      // update local exam state to reflect locked status
+      setExam((prev) =>
+        prev ? ({ ...prev, is_locked: true } as ExamOut) : prev
+      );
+      alert("Exam submitted. You can no longer edit marks.");
+    } catch (err) {
+      console.error("Finalize failed", err);
+      alert("Failed to finalize exam.");
+    }
+  }
+
   React.useEffect(() => {
     async function loadExam() {
       if (!examId || examId <= 0) return;
@@ -89,12 +128,15 @@ export default function MarksEntry() {
         setExamName(data.exam.exam_type);
         setSemester(data.exam.semester);
 
+        // IMPORTANT: set the exam state so finalize can work and UI knows lock state
+        setExam(data.exam);
+
         const hasAnyData =
           data.questions.length > 0 ||
           data.students.length > 0 ||
           data.marks.length > 0;
 
-        //  Only override table data if something was actually saved before
+        // Only override table data if something was actually saved before
         if (hasAnyData) {
           // Build questions
           const qs: Question[] = data.questions.map((q) => ({
@@ -136,7 +178,7 @@ export default function MarksEntry() {
   ) {
     const student = students.find((s) => s.id === studentId);
     if (student?.absent) return; // ignore changes if absent
-    if (isFrozen) return; // do not allow edits if account frozen
+    if (isFrozen || isFinalized) return; // do not allow edits if account frozen or exam finalized
 
     if (value === "") {
       setMarks((prev) => ({ ...prev, [keyFor(studentId, questionId)]: "" }));
@@ -168,9 +210,11 @@ export default function MarksEntry() {
   }
 
   function handleAddStudent(e: React.FormEvent) {
-    if (isAdminView) return;
-
     e.preventDefault();
+
+    // Block if admin view OR user frozen OR exam finalized
+    if (isAdminView || disabled) return;
+
     if (!newStudentRoll.trim() || !newStudentName.trim()) return;
 
     setStudents((prev) => [
@@ -187,9 +231,11 @@ export default function MarksEntry() {
   }
 
   function handleAddQuestion(e: React.FormEvent) {
-    if (isAdminView) return;
-
     e.preventDefault();
+
+    // Block if admin view OR user frozen OR exam finalized
+    if (isAdminView || disabled) return;
+
     if (!newQuestionMax || newQuestionMax <= 0) return;
 
     const nextIndex = questions.length + 1;
@@ -205,6 +251,7 @@ export default function MarksEntry() {
   }
 
   function toggleAbsent(studentId: number) {
+    if (disabled) return; // block if frozen/finalized
     setStudents((prev) =>
       prev.map((s) => (s.id === studentId ? { ...s, absent: !s.absent } : s))
     );
@@ -223,7 +270,6 @@ export default function MarksEntry() {
 
     const rows = students.map((s) => {
       if (s.absent) {
-        // Mark absent: keep cells blank, total = AB
         const emptyCells = questions.map(() => "");
         return [
           s.rollNo,
@@ -275,8 +321,10 @@ export default function MarksEntry() {
       return;
     }
 
-    if (isFrozen) {
-      alert("Your account has been frozen by admin. You cannot save marks.");
+    if (disabled) {
+      alert(
+        "Your account has been frozen or exam finalized. You cannot save marks."
+      );
       return;
     }
 
@@ -347,7 +395,27 @@ export default function MarksEntry() {
         {/* show prominent frozen message */}
         {showFrozenMessage && (
           <div className="mb-4 rounded-md bg-red-900/80 p-3 text-red-100">
-            Your account has been frozen by the admin. You cannot edit marks. Contact the admin to unfreeze your account.
+            Your account has been frozen by the admin. You cannot edit marks.
+            Contact the admin to unfreeze your account.
+          </div>
+        )}
+
+        {/* Show locked message ONLY for the teacher who submitted */}
+        {isFinalized && !isAdminView && user?.role === "teacher" && (
+          <div className="bg-red-100 text-red-900 border border-red-200 p-3 rounded-md mb-4 font-semibold">
+            you have submitted and cannot re-edit. contact admin
+          </div>
+        )}
+
+        {isFrozen && !isFinalized && (
+          <div className="bg-yellow-100 text-yellow-900 border border-yellow-200 p-2 rounded-md mb-4">
+            Your account has been frozen by admin — editing is disabled.
+          </div>
+        )}
+
+        {isFinalized && isAdminView && (
+          <div className="bg-blue-900/40 text-blue-200 px-3 py-2 rounded text-xs">
+            Exam has been final submitted by the teacher.
           </div>
         )}
 
@@ -431,10 +499,16 @@ export default function MarksEntry() {
           </div>
           <button
             type="submit"
-            onClick={isAdminView ? (e) => e.preventDefault() : handleAddStudent}
-            disabled={isAdminView}
+            onClick={(e) => {
+              if (isAdminView || disabled) {
+                e.preventDefault();
+                return;
+              }
+              return;
+            }}
+            disabled={isAdminView || disabled}
             className={`mt-1 inline-flex items-center justify-center rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-600 ${
-              isAdminView
+              isAdminView || disabled
                 ? "opacity-50 cursor-not-allowed hover:bg-indigo-500"
                 : ""
             }`}
@@ -465,12 +539,16 @@ export default function MarksEntry() {
           </div>
           <button
             type="submit"
-            onClick={
-              isAdminView ? (e) => e.preventDefault() : handleAddQuestion
-            }
-            disabled={isAdminView}
+            onClick={(e) => {
+              if (isAdminView || disabled) {
+                e.preventDefault();
+                return;
+              }
+              return;
+            }}
+            disabled={isAdminView || disabled}
             className={`mt-1 inline-flex items-center justify-center rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 ${
-              isAdminView
+              isAdminView || disabled
                 ? "opacity-50 cursor-not-allowed hover:bg-emerald-500"
                 : ""
             }`}
@@ -531,6 +609,7 @@ export default function MarksEntry() {
                       checked={!!s.absent}
                       onChange={() => toggleAbsent(s.id)}
                       className="h-3 w-3 rounded border-slate-600 text-rose-400"
+                      disabled={disabled}
                     />
                     <span>AB</span>
                   </label>
@@ -548,7 +627,9 @@ export default function MarksEntry() {
                         onChange={(e) =>
                           handleMarkChange(s.id, q.id, e.target.value)
                         }
-                        disabled={isAdminView || !!s.absent || isFrozen}
+                        disabled={
+                          isAdminView || !!s.absent || isFrozen || isFinalized
+                        }
                         className={
                           "w-16 rounded-md border px-1 py-1 text-center text-[11px] focus:outline-none focus:ring-1 " +
                           (s.absent
@@ -586,14 +667,14 @@ export default function MarksEntry() {
           {!isAdminView ? (
             <button
               type="button"
-              disabled={!examId || examId <= 0 || isFrozen}
+              disabled={!examId || examId <= 0 || disabled}
               onClick={handleSaveToServer}
               className={
                 "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +
                 (examId && examId > 0
-                  ? "bg-slate-900 text-slate-100 hover:bg-slate-800"
-                  : "bg-slate-900/60 text-slate-500 cursor-not-allowed") +
-                (isFrozen ? " opacity-50 cursor-not-allowed" : "")
+                  ? "bg-green-500  text-slate-100 hover:bg-slate-800"
+                  : "bg-green-500/60 text-slate-500 cursor-not-allowed") +
+                (disabled ? " opacity-50 cursor-not-allowed" : "")
               }
             >
               Save to server
@@ -611,6 +692,21 @@ export default function MarksEntry() {
           >
             Export CSV
           </button>
+
+          {/*Final Submit button */}
+          <div className="mt-3">
+            <button
+              onClick={handleFinalize}
+              disabled={disabled || isFinalized}
+              className={`w-full text-center font-bold rounded px-4 py-3 ${
+                isFinalized
+                  ? "opacity-60 cursor-not-allowed"
+                  : "bg-red-600 text-white hover:bg-red-700"
+              } border-2 border-red-700`}
+            >
+              Final Submit — Lock exam (cannot re-edit)
+            </button>
+          </div>
         </div>
       </div>
     </div>

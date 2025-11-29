@@ -1,7 +1,6 @@
 // src/pages/admin/TeacherList.tsx
 import React from "react";
 import { api } from "../services/api";
-import { useAuth } from "../context/AuthContext";
 
 type Teacher = {
   id: number;
@@ -20,7 +19,7 @@ export default function TeacherList() {
   const [tempPassword, setTempPassword] = React.useState<string | null>(null);
   const [resetting, setResetting] = React.useState(false);
 
-  const { user } = useAuth();
+
 
   React.useEffect(() => {
     load();

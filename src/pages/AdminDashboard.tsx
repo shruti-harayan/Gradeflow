@@ -5,6 +5,7 @@ import {
   downloadExamCsv,
   type ExamOut,
 } from "../services/examService";
+import TeacherList from "./TeacherList";
 import { Link, useNavigate } from "react-router-dom";
 
 export default function AdminDashboard() {
@@ -67,7 +68,7 @@ export default function AdminDashboard() {
       <p className="text-xs text-slate-400">
         Manage exams and download CSV reports created by teachers.
       </p>
-      
+
       <Link
         to="/admin/create-teacher"
         className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
@@ -75,74 +76,83 @@ export default function AdminDashboard() {
         + Create Teacher
       </Link>
 
-      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-        {exams.map((e) => (
-          <div
-            key={e.id}
-            className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 shadow-lg shadow-slate-900/40 space-y-2"
-          >
-            <h3 className="text-white font-semibold">
-              {e.subject_code} — {e.subject_name}
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              Exam: {e.exam_type} • Sem {e.semester}
-            </p>
-            <p className="text-[11px] text-slate-400">
-              Students: {e.students_count}
-            </p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* LEFT COLUMN: Teacher List */}
+        <div className="lg:col-span-1 space-y-4">
+          <TeacherList />
+        </div>
 
-            <div className="flex gap-2 mt-3">
-              <button
-                type="button"
-                onClick={(evt) => {
-                  // defensive: stop anything else from running (forms, parent handlers)
-                  evt.preventDefault();
-                  evt.stopPropagation();
+        {/* RIGHT COLUMN: Exams */}
+        <div className="lg:col-span-2">
+          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-2"></div>
+          {exams.map((e) => (
+            <div
+              key={e.id}
+              className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 shadow-lg shadow-slate-900/40 space-y-2"
+            >
+              <h3 className="text-white font-semibold">
+                {e.subject_code} — {e.subject_name}
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Exam: {e.exam_type} • Sem {e.semester}
+              </p>
+              <p className="text-[11px] text-slate-400">
+                Students: {e.students_count}
+              </p>
 
-                  console.log("View Marks clicked (defensive)", e.id);
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={(evt) => {
+                    // defensive: stop anything else from running (forms, parent handlers)
+                    evt.preventDefault();
+                    evt.stopPropagation();
 
-                  // small safety: ensure navigate exists and is a function
-                  try {
-                    handleViewMarks(e);
-                  } catch (err) {
-                    console.error(
-                      "navigate failed, falling back to client pushState",
-                      err
-                    );
-                    // fallback: update URL without reload using history API
-                    const q = new URLSearchParams({
-                      examId: String(e.id),
-                      subject: e.subject_code,
-                      subjectName: e.subject_name,
-                      exam: e.exam_type,
-                      sem: String(e.semester),
-                    }).toString();
-                    window.history.pushState({}, "", `/marks-entry?${q}`);
-                    // Also trigger a React Router navigation programmatically by dispatching a popstate
-                    window.dispatchEvent(new PopStateEvent("popstate"));
-                  }
-                }}
-                className="flex-1 rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-600"
-              >
-                View Marks
-              </button>
+                    console.log("View Marks clicked (defensive)", e.id);
 
-              <button
-                type="button"
-                onClick={() => handleDownload(e)}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-100 hover:bg-slate-800"
-              >
-                Download CSV
-              </button>
+                    // small safety: ensure navigate exists and is a function
+                    try {
+                      handleViewMarks(e);
+                    } catch (err) {
+                      console.error(
+                        "navigate failed, falling back to client pushState",
+                        err
+                      );
+                      // fallback: update URL without reload using history API
+                      const q = new URLSearchParams({
+                        examId: String(e.id),
+                        subject: e.subject_code,
+                        subjectName: e.subject_name,
+                        exam: e.exam_type,
+                        sem: String(e.semester),
+                      }).toString();
+                      window.history.pushState({}, "", `/marks-entry?${q}`);
+                      // Also trigger a React Router navigation programmatically by dispatching a popstate
+                      window.dispatchEvent(new PopStateEvent("popstate"));
+                    }
+                  }}
+                  className="flex-1 rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-600"
+                >
+                  View Marks
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDownload(e)}
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-100 hover:bg-slate-800"
+                >
+                  Download CSV
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        {exams.length === 0 && (
-          <p className="text-xs text-slate-500">
-            No exams found in system. Ask teachers to create 📝
-          </p>
-        )}
+          {exams.length === 0 && (
+            <p className="text-xs text-slate-500">
+              No exams found in system. Ask teachers to create 📝
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

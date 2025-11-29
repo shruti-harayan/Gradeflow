@@ -9,11 +9,13 @@ export interface ExamCreatePayload {
   exam_type: ExamType;
   semester: number;
   students_count?: number;
+  created_at?: string | null;
+  is_locked: boolean;
+  created_by?: number | null;
 }
 
 export interface ExamOut extends ExamCreatePayload {
   id: number;
-  created_at?: string;
 }
 
 export interface QuestionPayload {
@@ -82,6 +84,13 @@ export async function saveExamMarks(examId: number, payload: SaveMarksPayload) {
   const res = await api.post(`/exams/${examId}/marks`, payload);
   return res.data;
 }
+
+
+export async function finalizeExam(examId: number) {
+  const resp = await api.post(`/exams/${examId}/finalize`);
+  return resp.data;
+}
+
 
 export async function downloadExamCsv(examId: number, filename?: string) {
   const res = await api.get(`/exams/${examId}/export`, {
