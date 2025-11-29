@@ -12,10 +12,11 @@ class Exam(Base):
     id = Column(Integer, primary_key=True, index=True)
     subject_code = Column(String, index=True, nullable=False)
     subject_name = Column(String, nullable=False)
-    exam_type = Column(String, nullable=False)  # Internal, External, etc.
+    exam_type = Column(String, nullable=False)  
     semester = Column(Integer, nullable=False)
     students_count = Column(Integer, default=0)
-
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    is_locked = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -18,6 +18,7 @@ class ExamCreate(ExamBase):
 class ExamOut(ExamBase):
     id: int
     created_at: datetime | None = None
+    is_locked: bool = False
 
     class Config:
         from_attributes = True

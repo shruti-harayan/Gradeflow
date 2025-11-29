@@ -9,8 +9,51 @@ import csv
 from io import StringIO
 from app import models
 from typing import List
+from app.api.dependencies import admin_required
+from app.core.security import get_current_user
+from app.models.user import User
 
 router = APIRouter()
+
+
+@router.post("/{exam_id}/finalize")
+def finalize_exam(exam_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    Exam = models.exam.Exam  # type: ignore[attr-defined]
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    # If already locked, return ok
+    if getattr(exam, "is_locked", False):
+        return {"status": "ok", "message": "Exam already finalized"}
+
+    # Authorization: allow if current_user is admin OR current_user.id == exam.created_by
+    if current_user.role != "admin" and exam.created_by is not None and int(current_user.id) != int(exam.created_by):
+        raise HTTPException(status_code=403, detail="Only the exam owner or admin can finalize")
+
+    exam.is_locked = True
+    db.add(exam)
+    db.commit()
+    return {"status": "ok", "message": "Exam finalized (locked)."}
+
+
+@router.post("/{exam_id}/unfinalize", dependencies=[Depends(admin_required)])
+def unfinalize_exam(exam_id: int, db: Session = Depends(get_db)):
+    Exam = models.exam.Exam  # type: ignore[attr-defined]
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    if not getattr(exam, "is_locked", False):
+        return {"status": "ok", "message": "Exam not locked"}
+
+    exam.is_locked = False
+    db.add(exam)
+    db.commit()
+    return {"status": "ok", "message": "Exam unlocked for editing."}
+
 
 @router.get("/", response_model=List[ExamOut])
 def list_exams(db: Session = Depends(get_db)):
@@ -18,18 +61,26 @@ def list_exams(db: Session = Depends(get_db)):
     return exams
 
 @router.post("/", response_model=ExamOut)
-def create_exam(exam_in: ExamCreate, db: Session = Depends(get_db)):
-    Exam = models.exam.Exam  # type: ignore[attr-defined]
+def create_exam(
+    exam_in: ExamCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    Exam = models.exam.Exam  
+
     exam = Exam(
         subject_code=exam_in.subject_code,
         subject_name=exam_in.subject_name,
         exam_type=exam_in.exam_type,
         semester=exam_in.semester,
         students_count=exam_in.students_count or 0,
+        created_by=current_user.id  
     )
+
     db.add(exam)
     db.commit()
     db.refresh(exam)
+
     return exam
 
 
