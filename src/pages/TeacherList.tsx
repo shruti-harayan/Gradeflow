@@ -68,13 +68,7 @@ export default function TeacherList() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">Teachers</h2>
-        <button
-          className="bg-indigo-600 text-white px-3 py-1 rounded-md"
-          onClick={() => load()}
-        >
-          Refresh
-        </button>
+        <h2 className="text-lg font-semibold text-white">Teachers List</h2>
       </div>
 
       {loading && <div className="text-slate-300">Loading...</div>}

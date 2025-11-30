@@ -37,7 +37,7 @@ class TeacherOut(BaseModel):
     created_at: datetime | None
 
     class Config:
-        orm_mode = True
+        from_attributes = True 
 
 # Reset password input schema
 class ResetPasswordIn(BaseModel):
@@ -138,7 +138,7 @@ def google_login(payload: GoogleTokenIn, db: Session = Depends(get_db)):
     if not user:
         user = User(
             email=email,
-            full_name=name,
+            name=name,
             hashed_password=None,   # Google users don't have a local password
             role="teacher",     # Default role — you may ask user to choose
             google_sub=google_sub
@@ -164,6 +164,7 @@ class SignupIn(BaseModel):
 
 @router.post("/signup")
 def signup(payload: SignupIn, db: Session = Depends(get_db)):
+
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")

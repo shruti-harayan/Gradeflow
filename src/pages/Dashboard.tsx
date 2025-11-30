@@ -8,7 +8,6 @@ type SubjectCard = {
   examId?: number;    // backend exam id 
   code: string;
   name: string;
-  students: number;
   examType: ExamType;
   semester: number;
   lastUpdated?: string;
@@ -23,7 +22,6 @@ export default function Dashboard() {
   const [newCode, setNewCode] = React.useState("");
   const [newName, setNewName] = React.useState("");
   const [newExamType, setNewExamType] = React.useState<ExamType>("Internal");
-  const [newStudents, setNewStudents] = React.useState<number | "">("");
   const [newSemester, setNewSemester] = React.useState<number>(1);
 
   const [loading, setLoading] = React.useState(true);
@@ -39,7 +37,6 @@ export default function Dashboard() {
           examId: exam.id,
           code: exam.subject_code,
           name: exam.subject_name,
-          students: exam.students_count || 0,
           examType: exam.exam_type as ExamType,
           semester: exam.semester,
           lastUpdated: exam.created_at
@@ -62,7 +59,6 @@ export default function Dashboard() {
     setNewCode("");
     setNewName("");
     setNewExamType("Internal");
-    setNewStudents("");
     setNewSemester(1);
   }
 
@@ -70,8 +66,6 @@ export default function Dashboard() {
     e.preventDefault();
     if (!newCode.trim() || !newName.trim()) return;
 
-    const studentsCount =
-      typeof newStudents === "number" && newStudents > 0 ? newStudents : 0;
 
     // 1) Create exam in backend
     const exam = await createExam({
@@ -79,7 +73,7 @@ export default function Dashboard() {
       subject_name: newName.trim(),
       exam_type: newExamType,
       semester: newSemester,
-      students_count: studentsCount,
+      is_locked: false
     });
 
     // 2) Create local card so it appears immediately
@@ -88,7 +82,6 @@ export default function Dashboard() {
       examId: exam.id,
       code: exam.subject_code,
       name: exam.subject_name,
-      students: exam.students_count || 0,
       examType: exam.exam_type as ExamType,
       semester: exam.semester,
       lastUpdated: "Just now",
@@ -228,22 +221,6 @@ export default function Dashboard() {
                 ))}
               </select>
             </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-slate-300">Students (approx.)</label>
-              <input
-                type="number"
-                min={0}
-                value={newStudents}
-                onChange={(e) =>
-                  setNewStudents(
-                    e.target.value === "" ? "" : Number(e.target.value)
-                  )
-                }
-                placeholder="60"
-                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -307,12 +284,6 @@ export default function Dashboard() {
                   <span className="text-[11px] text-slate-400">
                     Sem {s.semester}
                   </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-2xl font-bold text-slate-50">
-                    {s.students}
-                  </span>
-                  <div className="text-[11px] text-slate-400">students</div>
                 </div>
               </div>
 

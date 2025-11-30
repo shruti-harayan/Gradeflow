@@ -3,6 +3,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import { signup, type Role } from "../services/authService";
+import axios from "axios";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -16,21 +17,47 @@ export default function Signup() {
   const [error, setError] = React.useState<string | null>(null);
 
   async function handleSignup(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
+  e.preventDefault();
+  setError(null);
+  setLoading(true);
 
-    try {
-      await signup(name, email, password, role);
-      // After signup, send user to login
-      navigate("/login");
-    } catch (err: any) {
-      console.error(err);
-      setError("Could not create account (email may already exist)");
-    } finally {
-      setLoading(false);
+  // build payload once
+  const payload = { name, email, password, role }; 
+
+  try {
+    await signup(name, email, password, role);
+
+    // success -> go to login
+    navigate("/login");
+  } catch (err: any) {
+    // Format axios / FastAPI validation errors into a friendly string
+    let message = "Network error";
+    if (axios.isAxiosError(err) && err.response) {
+      const data = err.response.data;
+      if (data?.detail) {
+        if (Array.isArray(data.detail)) {
+          message = data.detail
+            .map((d: any) => (typeof d === "string" ? d : d.msg ?? JSON.stringify(d)))
+            .join("; ");
+        } else if (typeof data.detail === "string") {
+          message = data.detail;
+        } else {
+          message = JSON.stringify(data.detail);
+        }
+      } else if (data) {
+        message = JSON.stringify(data);
+      }
+    } else if (err?.message) {
+      message = err.message;
     }
+
+    setError(message);
+    console.error("Signup error:", err);
+  } finally {
+    setLoading(false);
   }
+}
+
 
   return (
     <div className="min-h-[calc(100vh-96px)] flex items-center justify-center px-4 pb-10">
@@ -125,11 +152,7 @@ export default function Signup() {
             </p>
           </div>
 
-          {error && (
-            <p className="text-xs text-red-400 mt-1">
-              {error}
-            </p>
-          )}
+          {error && <div className="error">{error}</div>}
 
           <button
             type="submit"

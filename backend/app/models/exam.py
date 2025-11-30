@@ -52,7 +52,7 @@ class Student(Base):
     id = Column(Integer, primary_key=True, index=True)
     exam_id = Column(Integer, ForeignKey("exams.id", ondelete="CASCADE"))
     roll_no = Column(String, nullable=False)
-    name = Column(String, nullable=False)
+   
     absent = Column(Boolean, default=False)
 
     exam = relationship("Exam", back_populates="students")

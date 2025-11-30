@@ -1,5 +1,5 @@
 // src/pages/MarksEntry.tsx
-import React from "react";
+import React, { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   saveExamMarks,
@@ -15,7 +15,7 @@ import { useAuth } from "../context/AuthContext";
 type Student = {
   id: number;
   rollNo: string;
-  name: string;
+
   absent?: boolean;
 };
 
@@ -28,8 +28,8 @@ type Question = {
 type MarksMap = Record<string, number | "">; // key = `${studentId}-${questionId}`
 
 const initialStudents: Student[] = [
-  { id: 1, rollNo: "101", name: "Alice", absent: false },
-  { id: 2, rollNo: "102", name: "Bob", absent: false },
+  { id: 1, rollNo: "101", absent: false },
+  { id: 2, rollNo: "102", absent: false },
 ];
 
 const initialQuestions: Question[] = [
@@ -39,7 +39,7 @@ const initialQuestions: Question[] = [
 ];
 
 export default function MarksEntry() {
-  const { user } = useAuth(); // get logged-in user (may include is_frozen)
+  const { user } = useAuth(); // get logged-in user
   const [showFrozenMessage, setShowFrozenMessage] = React.useState(false);
   const [exam, setExam] = React.useState<ExamOut | null>(null);
   const [searchParams] = useSearchParams();
@@ -68,10 +68,9 @@ export default function MarksEntry() {
   const [questions, setQuestions] =
     React.useState<Question[]>(initialQuestions);
   const [marks, setMarks] = React.useState<MarksMap>({});
-
-  const [newStudentRoll, setNewStudentRoll] = React.useState("");
-  const [newStudentName, setNewStudentName] = React.useState("");
   const [newQuestionMax, setNewQuestionMax] = React.useState(10);
+
+  const [error, setError] = useState<string | null>(null);
 
   // key for marks map
   const keyFor = (studentId: number, questionId: number) =>
@@ -150,7 +149,7 @@ export default function MarksEntry() {
           const ss: Student[] = data.students.map((s) => ({
             id: s.id,
             rollNo: s.roll_no,
-            name: s.name,
+
             absent: s.absent,
           }));
           setStudents(ss);
@@ -209,27 +208,6 @@ export default function MarksEntry() {
     return questions.reduce((sum, q) => sum + q.maxMarks, 0);
   }
 
-  function handleAddStudent(e: React.FormEvent) {
-    e.preventDefault();
-
-    // Block if admin view OR user frozen OR exam finalized
-    if (isAdminView || disabled) return;
-
-    if (!newStudentRoll.trim() || !newStudentName.trim()) return;
-
-    setStudents((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        rollNo: newStudentRoll.trim(),
-        name: newStudentName.trim(),
-        absent: false,
-      },
-    ]);
-    setNewStudentRoll("");
-    setNewStudentName("");
-  }
-
   function handleAddQuestion(e: React.FormEvent) {
     e.preventDefault();
 
@@ -261,7 +239,6 @@ export default function MarksEntry() {
   function handleExportCSV() {
     const header = [
       "Roll No",
-      "Name",
       "Semester",
       "Exam Type",
       ...questions.map((q) => `${q.label} (/${q.maxMarks})`),
@@ -271,28 +248,14 @@ export default function MarksEntry() {
     const rows = students.map((s) => {
       if (s.absent) {
         const emptyCells = questions.map(() => "");
-        return [
-          s.rollNo,
-          s.name,
-          String(semester),
-          examName,
-          ...emptyCells,
-          "AB",
-        ];
+        return [s.rollNo, String(semester), examName, ...emptyCells, "AB"];
       } else {
         const cells = questions.map((q) => {
           const v = marks[keyFor(s.id, q.id)];
           return typeof v === "number" ? String(v) : "";
         });
         const total = studentTotal(s);
-        return [
-          s.rollNo,
-          s.name,
-          String(semester),
-          examName,
-          ...cells,
-          String(total),
-        ];
+        return [s.rollNo, String(semester), examName, ...cells, String(total)];
       }
     });
 
@@ -350,7 +313,6 @@ export default function MarksEntry() {
       });
       return {
         roll_no: s.rollNo,
-        name: s.name,
         absent: !!s.absent,
         marks: marksMap,
       };
@@ -366,10 +328,24 @@ export default function MarksEntry() {
         students: studentsPayload,
       });
       alert("Marks saved to server successfully ✅");
-    } catch (err) {
-      console.error(err);
-      alert("Failed to save marks to server.");
+    } catch (err: any) {
+      const resp = err?.response?.data;
+      let message = "Failed to save marks";
+      if (resp?.detail && Array.isArray(resp.detail)) {
+        message = resp.detail
+          .map((d: any) => {
+            const loc = Array.isArray(d.loc) ? d.loc.join(" -> ") : d.loc;
+            return `${loc}: ${d.msg}`;
+          })
+          .join("; ");
+      } else if (resp) {
+        message = JSON.stringify(resp);
+      } else if (err?.message) {
+        message = err.message;
+      }
+      setError(message); // render this string in JSX
     }
+
   }
 
   return (
@@ -418,6 +394,9 @@ export default function MarksEntry() {
             Exam has been final submitted by the teacher.
           </div>
         )}
+
+        {error && <p className="text-red-500">{error}</p>}
+
 
         <div className="flex flex-wrap gap-3 text-xs">
           <div className="flex items-center gap-2">
@@ -474,49 +453,8 @@ export default function MarksEntry() {
         </div>
       </div>
 
-      {/* Forms: add student / add question */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <form
-          onSubmit={handleAddStudent}
-          className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 space-y-3"
-        >
-          <h2 className="text-sm font-semibold text-slate-100">Add student</h2>
-          <div className="flex flex-col gap-2 text-xs">
-            <input
-              type="text"
-              placeholder="Roll no (e.g. 103)"
-              value={newStudentRoll}
-              onChange={(e) => setNewStudentRoll(e.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-            <input
-              type="text"
-              placeholder="Student name"
-              value={newStudentName}
-              onChange={(e) => setNewStudentName(e.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <button
-            type="submit"
-            onClick={(e) => {
-              if (isAdminView || disabled) {
-                e.preventDefault();
-                return;
-              }
-              return;
-            }}
-            disabled={isAdminView || disabled}
-            className={`mt-1 inline-flex items-center justify-center rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-600 ${
-              isAdminView || disabled
-                ? "opacity-50 cursor-not-allowed hover:bg-indigo-500"
-                : ""
-            }`}
-          >
-            Add student
-          </button>
-        </form>
-
+      {/* Forms: add question */}
+      <div className="flex flex-wrap gap-6">
         <form
           onSubmit={handleAddQuestion}
           className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 space-y-3"
@@ -564,7 +502,6 @@ export default function MarksEntry() {
           <thead>
             <tr className="border-b border-slate-800 text-slate-300">
               <th className="px-3 py-2 text-left font-medium">Roll no</th>
-              <th className="px-3 py-2 text-left font-medium">Name</th>
               <th className="px-3 py-2 text-center font-medium">Absent</th>
               {questions.map((q) => (
                 <th
@@ -599,7 +536,6 @@ export default function MarksEntry() {
                 <td className="px-3 py-2 font-mono text-slate-200">
                   {s.rollNo}
                 </td>
-                <td className="px-3 py-2 text-slate-100">{s.name}</td>
 
                 {/* Absent toggle */}
                 <td className="px-3 py-2 text-center">

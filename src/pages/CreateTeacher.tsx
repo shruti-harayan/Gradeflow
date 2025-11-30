@@ -40,7 +40,31 @@ export default function CreateTeacher() {
       setEmail("");
       setPassword("");
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Failed to create teacher");
+      // Convert FastAPI/Pydantic 422 detail into a readable string
+      let message = "Failed to create teacher";
+      const resp = err?.response?.data;
+      if (resp) {
+        if (Array.isArray(resp.detail)) {
+          // resp.detail is an array of objects: { loc, msg, type, ... }
+          message = resp.detail
+            .map((d: any) => {
+              if (typeof d === "string") return d;
+              // format like: "body -> name: field required"
+              const loc = Array.isArray(d.loc) ? d.loc.join(" -> ") : d.loc;
+              return `${loc}: ${d.msg}`;
+            })
+            .join("; ");
+        } else if (typeof resp.detail === "string") {
+          message = resp.detail;
+        } else {
+          // fallback: stringify body (safe)
+          message = JSON.stringify(resp);
+        }
+      } else if (err?.message) {
+        message = err.message;
+      }
+
+      setError(message);
     } finally {
       setLoading(false);
     }

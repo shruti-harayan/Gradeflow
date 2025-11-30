@@ -96,9 +96,6 @@ export default function AdminDashboard() {
               <p className="text-[11px] text-slate-400">
                 Exam: {e.exam_type} • Sem {e.semester}
               </p>
-              <p className="text-[11px] text-slate-400">
-                Students: {e.students_count}
-              </p>
 
               <div className="flex gap-2 mt-3">
                 <button

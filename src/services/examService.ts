@@ -8,7 +8,6 @@ export interface ExamCreatePayload {
   subject_name: string;
   exam_type: ExamType;
   semester: number;
-  students_count?: number;
   created_at?: string | null;
   is_locked: boolean;
   created_by?: number | null;
@@ -25,7 +24,6 @@ export interface QuestionPayload {
 
 export interface StudentMarksPayload {
   roll_no: string;
-  name: string;
   absent: boolean;
   marks: Record<string, number | null>;
 }

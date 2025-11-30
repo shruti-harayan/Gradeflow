@@ -8,7 +8,7 @@ class ExamBase(BaseModel):
     subject_name: str
     exam_type: str = Field(..., description="Internal, External, Practical, ATKT, Other")
     semester: int
-    students_count: int | None = 0
+    
 
 
 class ExamCreate(ExamBase):
@@ -31,7 +31,7 @@ class QuestionIn(BaseModel):
 
 class StudentMarksIn(BaseModel):
     roll_no: str
-    name: str
+    name: Optional[str] = None   # Optional student name
     absent: bool = False
     # key = question.label, value = marks or null
     marks: Dict[str, Optional[int]]
@@ -58,7 +58,7 @@ class QuestionOut(BaseModel):
 class StudentOut(BaseModel):
     id: int
     roll_no: str
-    name: str
+    name: Optional[str] = None   
     absent: bool
 
     class Config:

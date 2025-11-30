@@ -73,7 +73,6 @@ def create_exam(
         subject_name=exam_in.subject_name,
         exam_type=exam_in.exam_type,
         semester=exam_in.semester,
-        students_count=exam_in.students_count or 0,
         created_by=current_user.id  
     )
 
@@ -135,7 +134,6 @@ def save_marks(exam_id: int, payload: MarksSaveRequest, db: Session = Depends(ge
             s = Student(
                 exam_id=exam_id,
                 roll_no=s_in.roll_no,
-                name=s_in.name,
                 absent=s_in.absent,
             )
             db.add(s)
