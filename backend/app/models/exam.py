@@ -1,5 +1,5 @@
 # backend/app/models/exam.py
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Float, Integer, String, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -68,7 +68,7 @@ class Mark(Base):
     exam_id = Column(Integer, ForeignKey("exams.id", ondelete="CASCADE"))
     student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"))
     question_id = Column(Integer, ForeignKey("questions.id", ondelete="CASCADE"))
-    marks = Column(Integer, nullable=True)  # None if absent or not entered
+    marks = Column(Float, nullable=True)  # None if absent or not entered
 
     exam = relationship("Exam", back_populates="marks")
     student = relationship("Student", back_populates="marks")

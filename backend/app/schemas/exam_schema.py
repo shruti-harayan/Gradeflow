@@ -34,7 +34,7 @@ class StudentMarksIn(BaseModel):
     name: Optional[str] = None   # Optional student name
     absent: bool = False
     # key = question.label, value = marks or null
-    marks: Dict[str, Optional[int]]
+    marks: Dict[str, Optional[float]]
 
 
 class MarksSaveRequest(BaseModel):
@@ -68,7 +68,7 @@ class StudentOut(BaseModel):
 class MarkOut(BaseModel):
     student_id: int
     question_id: int
-    marks: int | None
+    marks: float | None
 
 
 class ExamMarksOut(BaseModel):
