@@ -63,9 +63,10 @@ export default function MarksEntry() {
   const [semester, setSemester] = React.useState<number>(
     isNaN(initialSem) ? 1 : initialSem
   );
+  // Academic Year (e.g., 2025-2026)
+  const [academicYear, setAcademicYear] = React.useState("2025-2026");
 
-  const [mainQuestions, setMainQuestions] =
-    React.useState<MainQuestion[]>([]);
+  const [mainQuestions, setMainQuestions] = React.useState<MainQuestion[]>([]);
 
   const [students, setStudents] = React.useState<Student[]>(initialStudents);
   const [marks, setMarks] = React.useState<MarksMap>({});
@@ -86,6 +87,15 @@ export default function MarksEntry() {
   const isFrozen = !!user?.is_frozen;
   const isFinalized = !!exam?.is_locked;
   const disabled = isFrozen || isFinalized;
+
+  //automatically set academic year
+  React.useEffect(() => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const next = year + 1;
+  setAcademicYear(`${year}-${next}`);
+}, []);
+
 
   React.useEffect(() => {
     // load exam details & existing saved marks
@@ -156,7 +166,9 @@ export default function MarksEntry() {
           // backend marks are objects with student_id and question_id; need to map them to labels
           // We attempt to map by matching question_id -> question label from data.questions
           const qById = new Map<number, string>();
-          (data.questions || []).forEach((q) => qById.set((q as any).id, (q as any).label));
+          (data.questions || []).forEach((q) =>
+            qById.set((q as any).id, (q as any).label)
+          );
 
           data.marks.forEach((mk) => {
             const qLabel = qById.get(mk.question_id);
@@ -191,7 +203,12 @@ export default function MarksEntry() {
     }
     const nFrom = Number(rawFrom);
     const nTo = Number(rawTo);
-    if (!Number.isFinite(nFrom) || !Number.isFinite(nTo) || Number.isNaN(nFrom) || Number.isNaN(nTo)) {
+    if (
+      !Number.isFinite(nFrom) ||
+      !Number.isFinite(nTo) ||
+      Number.isNaN(nFrom) ||
+      Number.isNaN(nTo)
+    ) {
       alert("Roll numbers must be numeric.");
       return;
     }
@@ -200,13 +217,20 @@ export default function MarksEntry() {
       return;
     }
     if (nFrom > nTo) {
-      alert("Starting roll number must be less than or equal to ending roll number.");
+      alert(
+        "Starting roll number must be less than or equal to ending roll number."
+      );
       return;
     }
     const count = nTo - nFrom + 1;
     const MAX_GENERATE = 500;
     if (count > MAX_GENERATE) {
-      if (!confirm(`You are about to generate ${count} rows. This may be slow. Proceed?`)) return;
+      if (
+        !confirm(
+          `You are about to generate ${count} rows. This may be slow. Proceed?`
+        )
+      )
+        return;
     }
     const generated: Student[] = [];
     for (let r = nFrom; r <= nTo; r++) {
@@ -283,11 +307,11 @@ export default function MarksEntry() {
     let n = parseFloat(raw);
     if (Number.isNaN(n)) return;
     // clamp between 0 and max
-  if (n < 0) n = 0;
-  if (n > max) n = max;
-// optional: round to 2 decimals to avoid long floats
-  n = Math.round(n * 100) / 100;
-    
+    if (n < 0) n = 0;
+    if (n > max) n = max;
+    // optional: round to 2 decimals to avoid long floats
+    n = Math.round(n * 100) / 100;
+
     setMarks((prev) => ({ ...prev, [key]: n }));
   }
 
@@ -300,7 +324,10 @@ export default function MarksEntry() {
   }
 
   function grandTotalForStudent(rollNo: string) {
-    return mainQuestions.reduce((acc, mq) => acc + mainTotalForStudent(rollNo, mq), 0);
+    return mainQuestions.reduce(
+      (acc, mq) => acc + mainTotalForStudent(rollNo, mq),
+      0
+    );
   }
 
   function maxTotal() {
@@ -316,14 +343,23 @@ export default function MarksEntry() {
       return;
     }
     if (disabled) {
-      alert("Final submission not allowed: account frozen or exam already finalized.");
+      alert(
+        "Final submission not allowed: account frozen or exam already finalized."
+      );
       return;
     }
-    if (!window.confirm("This will final-submit the exam. You will not be able to edit marks afterwards. Proceed?")) return;
+    if (
+      !window.confirm(
+        "This will final-submit the exam. You will not be able to edit marks afterwards. Proceed?"
+      )
+    )
+      return;
 
     try {
       await finalizeExam(exam.id);
-      setExam((prev) => (prev ? ({ ...prev, is_locked: true } as ExamOut) : prev));
+      setExam((prev) =>
+        prev ? ({ ...prev, is_locked: true } as ExamOut) : prev
+      );
       alert("Exam submitted. You can no longer edit marks.");
     } catch (err) {
       console.error("Finalize failed", err);
@@ -335,11 +371,19 @@ export default function MarksEntry() {
     // header: RollNo, then each sub-question label (Q1.A...), then per-main totals, then grand total
     const subLabels: string[] = [];
     mainQuestions.forEach((mq) => {
-      mq.subQuestions.forEach((sq) => subLabels.push(`${mq.label}.${sq.label}`));
+      mq.subQuestions.forEach((sq) =>
+        subLabels.push(`${mq.label}.${sq.label}`)
+      );
     });
     const mainTotalsLabels = mainQuestions.map((mq) => `${mq.label}.Total`);
 
-    const header = ["Roll No", ...subLabels, ...mainTotalsLabels, "Grand Total"];
+    const header = [
+      "Academic Year",
+      "Roll No",
+      ...subLabels,
+      ...mainTotalsLabels,
+      "Grand Total",
+    ];
     const rows = students.map((s) => {
       if (s.absent) {
         const empties = subLabels.map(() => "");
@@ -351,9 +395,11 @@ export default function MarksEntry() {
           const val = marks[v];
           return typeof val === "number" ? String(val) : "";
         });
-        const mainTotals = mainQuestions.map((mq) => String(mainTotalForStudent(s.rollNo, mq)));
+        const mainTotals = mainQuestions.map((mq) =>
+          String(mainTotalForStudent(s.rollNo, mq))
+        );
         const g = String(grandTotalForStudent(s.rollNo));
-        return [s.rollNo, ...subVals, ...mainTotals, g];
+        return [academicYear,s.rollNo, ...subVals, ...mainTotals, g];
       }
     });
 
@@ -372,11 +418,15 @@ export default function MarksEntry() {
 
   async function handleSaveToServer() {
     if (!examId || examId <= 0) {
-      alert("This exam is not linked to backend yet. Create it from Teacher Dashboard to save.");
+      alert(
+        "This exam is not linked to backend yet. Create it from Teacher Dashboard to save."
+      );
       return;
     }
     if (disabled) {
-      alert("Your account has been frozen or exam finalized. You cannot save marks.");
+      alert(
+        "Your account has been frozen or exam finalized. You cannot save marks."
+      );
       return;
     }
 
@@ -412,6 +462,7 @@ export default function MarksEntry() {
         subject_name: subjectName,
         exam_type: examName,
         semester,
+        academic_year: academicYear, 
         questions: questionsPayload,
         students: studentsPayload,
       } as any);
@@ -443,9 +494,12 @@ export default function MarksEntry() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Marks entry</h1>
-          <p className="text-xs text-slate-400">Roll-no & question-wise marks for a single exam.</p>
+          <p className="text-xs text-slate-400">
+            Roll-no & question-wise marks for a single exam.
+          </p>
           <p className="text-xs text-slate-300 mt-1">
-            <span className="font-semibold">{subjectCode}</span> — <span>{subjectName}</span> · Sem {semester}
+            <span className="font-semibold">{subjectCode}</span> —{" "}
+            <span>{subjectName}</span> · Sem {semester}
           </p>
         </div>
 
@@ -457,7 +511,8 @@ export default function MarksEntry() {
 
         {isFrozen && (
           <div className="mb-4 rounded-md bg-red-900/80 p-3 text-red-100">
-            Your account has been frozen by the admin. You cannot edit marks. Contact the admin to unfreeze your account.
+            Your account has been frozen by the admin. You cannot edit marks.
+            Contact the admin to unfreeze your account.
           </div>
         )}
 
@@ -478,15 +533,27 @@ export default function MarksEntry() {
         <div className="flex flex-wrap gap-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-slate-400">Subject code</span>
-            <input value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)} className="w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+            <input
+              value={subjectCode}
+              onChange={(e) => setSubjectCode(e.target.value)}
+              className="w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-slate-400">Subject name</span>
-            <input value={subjectName} onChange={(e) => setSubjectName(e.target.value)} className="w-40 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+            <input
+              value={subjectName}
+              onChange={(e) => setSubjectName(e.target.value)}
+              className="w-40 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-slate-400">Exam type</span>
-            <select value={examName} onChange={(e) => setExamName(e.target.value)} className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+            <select
+              value={examName}
+              onChange={(e) => setExamName(e.target.value)}
+              className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
               <option value="Internal">Internal</option>
               <option value="External">External</option>
               <option value="Practical">Practical</option>
@@ -496,15 +563,37 @@ export default function MarksEntry() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-slate-400">Semester</span>
-            <select value={semester} onChange={(e) => setSemester(Number(e.target.value))} className="w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+            <select
+              value={semester}
+              onChange={(e) => setSemester(Number(e.target.value))}
+              className="w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
               {Array.from({ length: 8 }, (_, i) => i + 1).map((sem) => (
-                <option key={sem} value={sem}>Sem {sem}</option>
+                <option key={sem} value={sem}>
+                  Sem {sem}
+                </option>
               ))}
             </select>
           </div>
+
+          {/* Academic Year */}
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400">Academic Year</span>
+              <input
+                type="text"
+                value={academicYear}
+                onChange={(e) => setAcademicYear(e.target.value)}
+                placeholder="2025-2026"
+                className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 
+                text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
           <div className="flex items-center gap-2">
             <span className="text-slate-400">Max total</span>
-            <span className="rounded-md bg-slate-800 px-2 py-1 text-slate-100">{maxTotal()}</span>
+            <span className="rounded-md bg-slate-800 px-2 py-1 text-slate-100">
+              {maxTotal()}
+            </span>
           </div>
         </div>
       </div>
@@ -516,34 +605,121 @@ export default function MarksEntry() {
           <h3 className="text-sm font-semibold text-slate-100">Students</h3>
 
           <form onSubmit={handleAddSingleStudent} className="flex gap-2">
-            <input value={newStudentRoll} onChange={(e) => setNewStudentRoll(e.target.value)} placeholder="Single roll (e.g. 201)" className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100" disabled={isAdminView || disabled} />
-            <button type="submit" disabled={isAdminView || disabled} className={`rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white ${isAdminView || disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-indigo-600"}`}>Add</button>
+            <input
+              value={newStudentRoll}
+              onChange={(e) => setNewStudentRoll(e.target.value)}
+              placeholder="Single roll (e.g. 201)"
+              className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+              disabled={isAdminView || disabled}
+            />
+            <button
+              type="submit"
+              disabled={isAdminView || disabled}
+              className={`rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white ${
+                isAdminView || disabled
+                  ? "opacity-50 cursor-not-allowed"
+                  : "hover:bg-indigo-600"
+              }`}
+            >
+              Add
+            </button>
           </form>
 
           <div className="border-t border-slate-800 pt-3 text-xs text-slate-400">
-            <div className="mb-2">Generate many students by roll no range (inclusive):</div>
-            <form onSubmit={handleGenerateRange} className="flex gap-2 items-center">
+            <div className="mb-2">
+              Generate many students by roll no range (inclusive):
+            </div>
+            <form
+              onSubmit={handleGenerateRange}
+              className="flex gap-2 items-center"
+            >
               <label className="text-[12px]">From</label>
-              <input type="number" min={0} value={newRollFrom} onChange={(e) => setNewRollFrom(e.target.value)} className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100" disabled={isAdminView || disabled} />
+              <input
+                type="number"
+                min={0}
+                value={newRollFrom}
+                onChange={(e) => setNewRollFrom(e.target.value)}
+                className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
+                disabled={isAdminView || disabled}
+              />
               <label className="text-[12px]">To</label>
-              <input type="number" min={0} value={newRollTo} onChange={(e) => setNewRollTo(e.target.value)} className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100" disabled={isAdminView || disabled} />
-              <button type="submit" disabled={isAdminView || disabled} className={`ml-2 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white ${isAdminView || disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-emerald-600"}`}>Generate</button>
+              <input
+                type="number"
+                min={0}
+                value={newRollTo}
+                onChange={(e) => setNewRollTo(e.target.value)}
+                className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
+                disabled={isAdminView || disabled}
+              />
+              <button
+                type="submit"
+                disabled={isAdminView || disabled}
+                className={`ml-2 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white ${
+                  isAdminView || disabled
+                    ? "opacity-50 cursor-not-allowed"
+                    : "hover:bg-emerald-600"
+                }`}
+              >
+                Generate
+              </button>
             </form>
-            <div className="mt-2 text-[11px] text-slate-500">Example: From <span className="font-mono">201</span> To <span className="font-mono">255</span> → generates 55 rows.</div>
+            <div className="mt-2 text-[11px] text-slate-500">
+              Example: From <span className="font-mono">201</span> To{" "}
+              <span className="font-mono">255</span> → generates 55 rows.
+            </div>
           </div>
         </div>
 
         {/* Add main question */}
-        <form onSubmit={handleAddMainQuestion} className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 space-y-2">
-          <h3 className="text-sm font-semibold text-slate-100">Add Main Question</h3>
+        <form
+          onSubmit={handleAddMainQuestion}
+          className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 space-y-2"
+        >
+          <h3 className="text-sm font-semibold text-slate-100">
+            Add Main Question
+          </h3>
           <div className="flex items-center gap-2">
-            <input placeholder="Q1" value={newMainQLabel} onChange={(e) => setNewMainQLabel(e.target.value)} className="w-24 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100" disabled={isAdminView || disabled} />
-            <input type="number" min={1} max={10} value={newMainQSubCount} onChange={(e) => setNewMainQSubCount(Number(e.target.value))} className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100" disabled={isAdminView || disabled} />
-            <input type="number" min={1} max={50} value={defaultMaxSubMarks} onChange={(e) => setDefaultMaxSubMarks(Number(e.target.value))} className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100" disabled={isAdminView || disabled} />
+            <input
+              placeholder="Q1"
+              value={newMainQLabel}
+              onChange={(e) => setNewMainQLabel(e.target.value)}
+              className="w-24 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
+              disabled={isAdminView || disabled}
+            />
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={newMainQSubCount}
+              onChange={(e) => setNewMainQSubCount(Number(e.target.value))}
+              className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
+              disabled={isAdminView || disabled}
+            />
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={defaultMaxSubMarks}
+              onChange={(e) => setDefaultMaxSubMarks(Number(e.target.value))}
+              className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
+              disabled={isAdminView || disabled}
+            />
           </div>
-          <div className="text-[11px] text-slate-400">Main Question No · Sub-questions · Max marks per sub-question</div>
+          <div className="text-[11px] text-slate-400">
+            Main Question No · Sub-questions · Max marks per sub-question
+          </div>
           <div>
-            <button type="submit" disabled={isAdminView || disabled} className={`mt-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs text-white ${isAdminView || disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-emerald-700"}`}>Add Main Question</button>
+            <button
+              type="submit"
+              disabled={isAdminView || disabled}
+              className={`mt-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs text-white ${
+                isAdminView || disabled
+                  ? "opacity-50 cursor-not-allowed"
+                  : "hover:bg-emerald-700"
+              }`}
+            >
+              Add Main Question
+            </button>
           </div>
         </form>
 
@@ -551,10 +727,28 @@ export default function MarksEntry() {
         <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4">
           <h3 className="text-sm font-semibold text-slate-100">Summary</h3>
           <div className="text-xs text-slate-400 mt-2">
-            <div>Students: <span className="font-semibold text-slate-100">{students.length}</span></div>
-            <div>Main questions: <span className="font-semibold text-slate-100">{mainQuestions.length}</span></div>
-            <div>Sub columns: <span className="font-semibold text-slate-100">{mainQuestions.reduce((s, mq) => s + mq.subQuestions.length, 0)}</span></div>
-            <div className="mt-2">Grand max: <span className="font-semibold text-slate-100">{maxTotal()}</span></div>
+            <div>
+              Students:{" "}
+              <span className="font-semibold text-slate-100">
+                {students.length}
+              </span>
+            </div>
+            <div>
+              Main questions:{" "}
+              <span className="font-semibold text-slate-100">
+                {mainQuestions.length}
+              </span>
+            </div>
+            <div>
+              Sub columns:{" "}
+              <span className="font-semibold text-slate-100">
+                {mainQuestions.reduce((s, mq) => s + mq.subQuestions.length, 0)}
+              </span>
+            </div>
+            <div className="mt-2">
+              Grand max:{" "}
+              <span className="font-semibold text-slate-100">{maxTotal()}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -570,30 +764,60 @@ export default function MarksEntry() {
               {/* Flattened sub-question columns */}
               {mainQuestions.flatMap((mq) =>
                 mq.subQuestions.map((sq) => (
-                  <th key={`${mq.label}.${sq.label}`} className="px-2 py-2 text-center font-medium">
+                  <th
+                    key={`${mq.label}.${sq.label}`}
+                    className="px-2 py-2 text-center font-medium"
+                  >
                     {mq.label}.{sq.label}
-                    <div className="text-[10px] text-slate-500">/{sq.maxMarks}</div>
+                    <div className="text-[10px] text-slate-500">
+                      /{sq.maxMarks}
+                    </div>
                   </th>
                 ))
               )}
 
               {/* main totals */}
               {mainQuestions.map((mq) => (
-                <th key={`${mq.label}.Total`} className="px-3 py-2 text-center font-medium">{mq.label}.Total</th>
+                <th
+                  key={`${mq.label}.Total`}
+                  className="px-3 py-2 text-center font-medium"
+                >
+                  {mq.label}.Total
+                </th>
               ))}
 
-              <th className="px-3 py-2 text-center font-bold text-emerald-300">Grand Total</th>
+              <th className="px-3 py-2 text-center font-bold text-emerald-300">
+                Grand Total
+              </th>
             </tr>
           </thead>
 
           <tbody>
             {students.map((s, rowIdx) => (
-              <tr key={s.id} className={"border-b border-slate-900" + (s.absent ? " bg-slate-900/60" : rowIdx % 2 === 0 ? " bg-slate-950/40" : "")}>
-                <td className="px-3 py-2 font-mono text-slate-200">{s.rollNo}</td>
+              <tr
+                key={s.id}
+                className={
+                  "border-b border-slate-900" +
+                  (s.absent
+                    ? " bg-slate-900/60"
+                    : rowIdx % 2 === 0
+                    ? " bg-slate-950/40"
+                    : "")
+                }
+              >
+                <td className="px-3 py-2 font-mono text-slate-200">
+                  {s.rollNo}
+                </td>
 
                 <td className="px-3 py-2 text-center">
                   <label className="inline-flex items-center gap-1 text-[11px] text-slate-300">
-                    <input type="checkbox" checked={!!s.absent} onChange={() => handleToggleAbsent(s.id)} className="h-3 w-3 rounded border-slate-600 text-rose-400" disabled={disabled} />
+                    <input
+                      type="checkbox"
+                      checked={!!s.absent}
+                      onChange={() => handleToggleAbsent(s.id)}
+                      className="h-3 w-3 rounded border-slate-600 text-rose-400"
+                      disabled={disabled}
+                    />
                     <span>AB</span>
                   </label>
                 </td>
@@ -611,10 +835,27 @@ export default function MarksEntry() {
                           step="0.25"
                           min={0}
                           max={sq.maxMarks}
-                          value={value === "" || value === undefined ? "" : value}
-                          onChange={(e) => handleSubMarkChange(s.rollNo, mq.label, sq.label, sq.maxMarks, e.target.value)}
-                          disabled={isAdminView || !!s.absent || isFrozen || isFinalized}
-                          className={"w-14 rounded-md border px-1 py-1 text-center text-[11px] focus:outline-none " + (s.absent ? "border-slate-800 bg-slate-900 text-slate-500" : "border-slate-700 bg-slate-900 text-slate-100")}
+                          value={
+                            value === "" || value === undefined ? "" : value
+                          }
+                          onChange={(e) =>
+                            handleSubMarkChange(
+                              s.rollNo,
+                              mq.label,
+                              sq.label,
+                              sq.maxMarks,
+                              e.target.value
+                            )
+                          }
+                          disabled={
+                            isAdminView || !!s.absent || isFrozen || isFinalized
+                          }
+                          className={
+                            "w-14 rounded-md border px-1 py-1 text-center text-[11px] focus:outline-none " +
+                            (s.absent
+                              ? "border-slate-800 bg-slate-900 text-slate-500"
+                              : "border-slate-700 bg-slate-900 text-slate-100")
+                          }
                         />
                       </td>
                     );
@@ -623,12 +864,17 @@ export default function MarksEntry() {
 
                 {/* main totals */}
                 {mainQuestions.map((mq) => (
-                  <td key={`${s.rollNo}-${mq.label}.total`} className="px-3 py-2 text-center font-semibold text-slate-100">
+                  <td
+                    key={`${s.rollNo}-${mq.label}.total`}
+                    className="px-3 py-2 text-center font-semibold text-slate-100"
+                  >
                     {s.absent ? "AB" : mainTotalForStudent(s.rollNo, mq)}
                   </td>
                 ))}
 
-                <td className="px-3 py-2 text-center font-bold text-emerald-400">{s.absent ? "AB" : grandTotalForStudent(s.rollNo)}</td>
+                <td className="px-3 py-2 text-center font-bold text-emerald-400">
+                  {s.absent ? "AB" : grandTotalForStudent(s.rollNo)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -638,22 +884,60 @@ export default function MarksEntry() {
       {/* Bottom action bar */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between text-xs">
         <div className="text-slate-400">
-          Students: <span className="text-slate-100 font-semibold">{students.length}</span> · Main Qs: <span className="text-slate-100 font-semibold">{mainQuestions.length}</span> · Columns: <span className="text-slate-100 font-semibold">{mainQuestions.reduce((s, mq) => s + mq.subQuestions.length, 0)}</span>
+          Students:{" "}
+          <span className="text-slate-100 font-semibold">
+            {students.length}
+          </span>{" "}
+          · Main Qs:{" "}
+          <span className="text-slate-100 font-semibold">
+            {mainQuestions.length}
+          </span>{" "}
+          · Columns:{" "}
+          <span className="text-slate-100 font-semibold">
+            {mainQuestions.reduce((s, mq) => s + mq.subQuestions.length, 0)}
+          </span>
         </div>
 
         <div className="flex gap-3">
           {!isAdminView ? (
-            <button type="button" onClick={handleSaveToServer} disabled={!examId || examId <= 0 || disabled} className={"rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " + (examId && examId > 0 ? "bg-green-500 text-slate-100 hover:bg-slate-800" : "bg-green-500/60 text-slate-500 cursor-not-allowed") + (disabled ? " opacity-50 cursor-not-allowed" : "")}>
+            <button
+              type="button"
+              onClick={handleSaveToServer}
+              disabled={!examId || examId <= 0 || disabled}
+              className={
+                "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +
+                (examId && examId > 0
+                  ? "bg-green-500 text-slate-100 hover:bg-slate-800"
+                  : "bg-green-500/60 text-slate-500 cursor-not-allowed") +
+                (disabled ? " opacity-50 cursor-not-allowed" : "")
+              }
+            >
               Save to server
             </button>
           ) : (
-            <div className="text-xs text-slate-400 px-4 py-2">Read-only view</div>
+            <div className="text-xs text-slate-400 px-4 py-2">
+              Read-only view
+            </div>
           )}
 
-          <button type="button" onClick={handleExportCSV} className="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-600 shadow shadow-indigo-500/40">Export CSV</button>
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            className="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-600 shadow shadow-indigo-500/40"
+          >
+            Export CSV
+          </button>
 
           <div className="mt-3">
-            <button onClick={handleFinalize} disabled={disabled || isFinalized} className={`w-full text-center font-bold rounded px-4 py-3 ${isFinalized ? "opacity-60 cursor-not-allowed" : "bg-red-600 text-white hover:bg-red-700"} border-2 border-red-700`}>
+            <button
+              onClick={handleFinalize}
+              disabled={disabled || isFinalized}
+              className={`w-full text-center font-bold rounded px-4 py-3 ${
+                isFinalized
+                  ? "opacity-60 cursor-not-allowed"
+                  : "bg-red-600 text-white hover:bg-red-700"
+              } border-2 border-red-700`}
+            >
               Final Submit — Lock exam (cannot re-edit)
             </button>
           </div>

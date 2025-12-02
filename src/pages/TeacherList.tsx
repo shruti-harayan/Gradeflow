@@ -1,6 +1,7 @@
 // src/pages/admin/TeacherList.tsx
 import React from "react";
 import { api } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 type Teacher = {
   id: number;
@@ -17,9 +18,7 @@ export default function TeacherList() {
   const [err, setErr] = React.useState<string | null>(null);
   const [showResetFor, setShowResetFor] = React.useState<number | null>(null);
   const [tempPassword, setTempPassword] = React.useState<string | null>(null);
-  const [resetting, setResetting] = React.useState(false);
-
-
+  //const [resetting, setResetting] = React.useState(false);
 
   React.useEffect(() => {
     load();
@@ -51,19 +50,36 @@ export default function TeacherList() {
     }
   }
 
-  async function resetPassword(teacherId: number) {
-    setResetting(true);
-    setTempPassword(null);
-    try {
-      const res = await api.post(`/auth/admin/teachers/${teacherId}/reset-password`, {});
-      setTempPassword(res.data.temporary_password ?? ""); // dev mode returns password
-      setShowResetFor(teacherId);
-    } catch (e: any) {
-      alert(e?.response?.data?.detail || "Reset failed");
-    } finally {
-      setResetting(false);
+
+  const { user } = useAuth();
+
+  async function handleResetPassword(teacherId: number) {
+    // Only allow admins in UI too
+    if (user?.role !== "admin") {
+      alert("Only admins can reset passwords.");
+      return;
     }
-  }
+
+    const newPassword = prompt("Enter new password for the teacher (min 6 chars):");
+    if (!newPassword) return;
+    if (newPassword.length < 6) {
+      alert("Password must be at least 6 characters.");
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("gf_token"); 
+      await api.post(
+        `/auth/admin-reset-password/${teacherId}`,
+        { password: newPassword },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      alert("Password updated. Share it securely with the teacher.");
+    } catch (err: any) {
+      console.error("Reset failed", err);
+      alert(err?.response?.data?.detail || "Failed to reset password");
+    }
+  }  
 
   return (
     <div className="p-6">
@@ -94,11 +110,7 @@ export default function TeacherList() {
 
               <button
                 className="px-3 py-1 rounded-md bg-indigo-600 text-white text-sm"
-                onClick={() => resetPassword(t.id)}
-                disabled={resetting}
-              >
-                Reset password
-              </button>
+                onClick={() =>  handleResetPassword(t.id)}>Reset password</button>
             </div>
           </div>
         ))}

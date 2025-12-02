@@ -7,6 +7,7 @@ import {
 } from "../services/examService";
 import TeacherList from "./TeacherList";
 import { Link, useNavigate } from "react-router-dom";
+import { finalizeExam, unfinalizeExam } from "../services/examService";
 
 export default function AdminDashboard() {
   const [exams, setExams] = React.useState<ExamOut[]>([]);
@@ -27,6 +28,33 @@ export default function AdminDashboard() {
     }
     load();
   }, []);
+
+  async function toggleExamLock(examId: number, currentlyLocked: boolean) {
+    try {
+      if (currentlyLocked) {
+        // unlock
+        await unfinalizeExam(examId);
+        setExams((prev) =>
+          prev.map((ex) =>
+            ex.id === examId ? { ...ex, is_locked: false } : ex
+          )
+        );
+        alert("Exam unlocked for editing.");
+      } else {
+        // finalize (lock)
+        await finalizeExam(examId);
+        setExams((prev) =>
+          prev.map((ex) => (ex.id === examId ? { ...ex, is_locked: true } : ex))
+        );
+        alert("Exam finalized (locked).");
+      }
+    } catch (err: any) {
+      console.error("Toggle lock failed", err);
+      const msg =
+        err?.response?.data?.detail || err?.message || "Operation failed";
+      alert(msg);
+    }
+  }
 
   async function handleDownload(e: ExamOut) {
     // Create clean filename: CODE_subject_examType_SemX_marks.csv
@@ -84,65 +112,97 @@ export default function AdminDashboard() {
 
         {/* RIGHT COLUMN: Exams */}
         <div className="lg:col-span-2">
-          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-2"></div>
-          {exams.map((e) => (
-            <div
-              key={e.id}
-              className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 shadow-lg shadow-slate-900/40 space-y-2"
-            >
-              <h3 className="text-white font-semibold">
-                {e.subject_code} — {e.subject_name}
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Exam: {e.exam_type} • Sem {e.semester}
-              </p>
+          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-2">
+            {exams.map((e) => (
+              <div
+                key={e.id}
+                className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-md hover:bg-slate-800/50 transition"
+              >
+                {/* SUBJECT & BASIC INFO */}
+                <h3 className="text-white font-semibold text-sm">
+                  {e.subject_code} — {e.subject_name}
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Exam: {e.exam_type} • Sem {e.semester}
+                </p>
+                {e.academic_year && (
+                  <p className="text-[11px] text-slate-400">
+                    Academic Year: {e.academic_year}
+                  </p>
+                )}
 
-              <div className="flex gap-2 mt-3">
-                <button
-                  type="button"
-                  onClick={(evt) => {
-                    // defensive: stop anything else from running (forms, parent handlers)
-                    evt.preventDefault();
-                    evt.stopPropagation();
+                {/* LOCK / UNLOCK BUTTON */}
+                <div className="mt-3 flex items-center gap-2">
+                  {e.is_locked ? (
+                    <button
+                      onClick={() => {
+                        if (
+                          !confirm(
+                            "Unlock exam? This will allow the teacher to edit again."
+                          )
+                        )
+                          return;
+                        toggleExamLock(e.id, true);
+                      }}
+                      className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+                      title="Unlock exam (allow teacher to edit)"
+                    >
+                      Unlock
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (
+                          !confirm(
+                            "Final-submit (lock) this exam? Teacher will not be able to edit afterwards."
+                          )
+                        )
+                          return;
+                        toggleExamLock(e.id, false);
+                      }}
+                      className="rounded-md bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700"
+                      title="Final-submit exam (lock)"
+                    >
+                      Final Submit
+                    </button>
+                  )}
 
-                    console.log("View Marks clicked (defensive)", e.id);
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded ${
+                      e.is_locked
+                        ? "bg-emerald-700 text-emerald-100"
+                        : "bg-slate-700 text-slate-200"
+                    }`}
+                  >
+                    {e.is_locked ? "Locked" : "Editable"}
+                  </span>
+                </div>
 
-                    // small safety: ensure navigate exists and is a function
-                    try {
+                {/* BUTTONS: VIEW MARKS / DOWNLOAD */}
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={(evt) => {
+                      evt.preventDefault();
+                      evt.stopPropagation();
                       handleViewMarks(e);
-                    } catch (err) {
-                      console.error(
-                        "navigate failed, falling back to client pushState",
-                        err
-                      );
-                      // fallback: update URL without reload using history API
-                      const q = new URLSearchParams({
-                        examId: String(e.id),
-                        subject: e.subject_code,
-                        subjectName: e.subject_name,
-                        exam: e.exam_type,
-                        sem: String(e.semester),
-                      }).toString();
-                      window.history.pushState({}, "", `/marks-entry?${q}`);
-                      // Also trigger a React Router navigation programmatically by dispatching a popstate
-                      window.dispatchEvent(new PopStateEvent("popstate"));
-                    }
-                  }}
-                  className="flex-1 rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-600"
-                >
-                  View Marks
-                </button>
+                    }}
+                    className="flex-1 rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-600"
+                  >
+                    View Marks
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleDownload(e)}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-100 hover:bg-slate-800"
-                >
-                  Download CSV
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(e)}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-100 hover:bg-slate-800"
+                  >
+                    Download CSV
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
 
           {exams.length === 0 && (
             <p className="text-xs text-slate-500">

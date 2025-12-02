@@ -2,7 +2,6 @@
 from sqlalchemy import Column, Float, Integer, String, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-
 from app.database import Base
 
 
@@ -14,6 +13,7 @@ class Exam(Base):
     subject_name = Column(String, nullable=False)
     exam_type = Column(String, nullable=False)  
     semester = Column(Integer, nullable=False)
+    academic_year= Column(String, nullable=False)
     students_count = Column(Integer, default=0)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     is_locked = Column(Boolean, default=False, nullable=False)

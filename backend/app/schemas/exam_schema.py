@@ -8,7 +8,7 @@ class ExamBase(BaseModel):
     subject_name: str
     exam_type: str = Field(..., description="Internal, External, Practical, ATKT, Other")
     semester: int
-    
+    academic_year: str
 
 
 class ExamCreate(ExamBase):

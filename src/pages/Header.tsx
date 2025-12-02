@@ -18,7 +18,7 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-      <div className="container mx-auto flex items-center justify-between px-6 py-4">
+      <div className="container mx-auto flex items-center justify-between px-6 py-4 relative">
         {/* Logo + title */}
         <Link to="/" className="flex items-center gap-3">
           <img
@@ -35,6 +35,30 @@ export default function Header() {
             </p>
           </div>
         </Link>
+
+        {/* Center College Name */}
+
+        <div className="absolute left-1/2 -translate-x-1/2 text-center flex flex-col items-center">
+          {/* College Logo */}
+          <img
+            src="/logo.jpeg"
+            alt="College Logo"
+            className="h-10 w-10 object-contain mb-1 drop-shadow-lg"
+          />
+
+          {/* College Name */}
+          <h2 className="text-lg font-extrabold text-sky-300 drop-shadow-md tracking-wide whitespace-nowrap">
+            RAMANAND ARYA D.A.V. COLLEGE
+          </h2>
+
+          {/* Tagline / Affiliation */}
+          <p className="text-[11px] text-slate-400 tracking-wide whitespace-nowrap leading-tight">
+            Affiliated to{" "}
+            <span className="font-semibold text-slate-300">
+              University of Mumbai
+            </span>
+          </p>
+        </div>
 
         {/* Right side */}
         <div className="flex items-center gap-6 text-sm">
@@ -80,7 +104,7 @@ export default function Header() {
 
                 <button
                   onClick={handleLogout}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 hover:text-white"
+                  className="rounded-lg border border-red-700 bg-red-600 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-red-700 hover:text-white"
                 >
                   Logout
                 </button>
@@ -106,9 +130,7 @@ function HeaderLink({ to, currentPath, children }: HeaderLinkProps) {
       to={to}
       className={
         "transition-colors " +
-        (active
-          ? "text-indigo-300"
-          : "text-slate-300 hover:text-white")
+        (active ? "text-indigo-300" : "text-slate-300 hover:text-white")
       }
     >
       {children}

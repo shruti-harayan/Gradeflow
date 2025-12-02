@@ -15,6 +15,7 @@ export interface ExamCreatePayload {
 
 export interface ExamOut extends ExamCreatePayload {
   id: number;
+  academic_year: string;
 }
 
 export interface QuestionPayload {
@@ -89,6 +90,11 @@ export async function finalizeExam(examId: number) {
   return resp.data;
 }
 
+export async function unfinalizeExam(examId: number) {
+  // call backend unfinalize endpoint
+  const resp = await api.post(`/exams/${examId}/unfinalize`);
+  return resp.data;
+}
 
 export async function downloadExamCsv(examId: number, filename?: string) {
   const res = await api.get(`/exams/${examId}/export`, {
