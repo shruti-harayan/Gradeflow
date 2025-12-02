@@ -10,12 +10,13 @@ export interface ExamCreatePayload {
   semester: number;
   created_at?: string | null;
   is_locked: boolean;
+  academic_year: string;
   created_by?: number | null;
+  locked_by?: number | null; 
 }
 
 export interface ExamOut extends ExamCreatePayload {
   id: number;
-  academic_year: string;
 }
 
 export interface QuestionPayload {

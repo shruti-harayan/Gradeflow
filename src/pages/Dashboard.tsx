@@ -4,8 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { createExam, getExams, type ExamType } from "../services/examService";
 
 type SubjectCard = {
-  id: number;         // UI id 
-  examId?: number;    // backend exam id 
+  id: number; // UI id
+  examId?: number; // backend exam id
   code: string;
   name: string;
   examType: ExamType;
@@ -16,6 +16,7 @@ type SubjectCard = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
+  const [academicYear, setAcademicYear] = React.useState("2025-2026");
   const [subjects, setSubjects] = React.useState<SubjectCard[]>([]);
   const [isCreating, setIsCreating] = React.useState(false);
 
@@ -66,14 +67,19 @@ export default function Dashboard() {
     e.preventDefault();
     if (!newCode.trim() || !newName.trim()) return;
 
+    if (!academicYear || academicYear.trim().length < 7) {
+  alert("Please enter academic year (eg. 2025-2026)");
+  return;
+}
 
     // 1) Create exam in backend
     const exam = await createExam({
       subject_code: newCode.trim().toUpperCase(),
       subject_name: newName.trim(),
       exam_type: newExamType,
-      semester: newSemester,
-      is_locked: false
+      semester: Number(newSemester),
+      academic_year: academicYear,
+      is_locked: false,
     });
 
     // 2) Create local card so it appears immediately
@@ -220,6 +226,17 @@ export default function Dashboard() {
                   </option>
                 ))}
               </select>
+              {/* Academic Year */}
+              <div className="flex items-center gap-2">
+                <label className="text-slate-400 text-xs">Academic Year</label>
+                <input
+                  type="text"
+                  value={academicYear}
+                  onChange={(e) => setAcademicYear(e.target.value)}
+                  placeholder="2025-2026"
+                  className="w-32 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
             </div>
           </div>
 

@@ -10,16 +10,6 @@ import {
 } from "../services/examService";
 import { useAuth } from "../context/AuthContext";
 
-/**
- * New structure:
- * - mainQuestions: MainQuestion[] where each MainQuestion has subQuestions (A,B,C...)
- * - marks: Record<`${rollNo}-${MainLabel}.${SubLabel}`, number | "">
- *
- * When saving to server we FLATTEN questions to labels like "Q1.A" and send:
- * questions: [{ label: "Q1.A", max_marks: 5 }, ...]
- * students: [{ roll_no: "201", absent: false, marks: { "Q1.A": 4, ... } }, ...]
- */
-
 type Student = {
   id: number;
   rollNo: string;
@@ -51,6 +41,8 @@ export default function MarksEntry() {
   const examIdParam = searchParams.get("examId");
   const examId = examIdParam ? Number(examIdParam) : 0;
   const isAdminView = searchParams.get("adminView") === "1";
+  // set to true if THIS teacher final-submits the exam in this session
+  const [iFinalized, setIFinalized] = React.useState(false);
 
   const initialSubject = searchParams.get("subject") ?? "CS101";
   const initialSubjectName = searchParams.get("subjectName") ?? "Algorithms";
@@ -90,12 +82,11 @@ export default function MarksEntry() {
 
   //automatically set academic year
   React.useEffect(() => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const next = year + 1;
-  setAcademicYear(`${year}-${next}`);
-}, []);
-
+    const now = new Date();
+    const year = now.getFullYear();
+    const next = year + 1;
+    setAcademicYear(`${year}-${next}`);
+  }, []);
 
   React.useEffect(() => {
     // load exam details & existing saved marks
@@ -108,6 +99,9 @@ export default function MarksEntry() {
         setExamName(data.exam.exam_type);
         setSemester(data.exam.semester);
         setExam(data.exam);
+
+        // after setExam(data.exam);
+        console.log("Loaded exam (debug):", data.exam);
 
         // If backend already has question rows (flat), convert them into mainQuestions if possible.
         // Backend likely returns questions as a flat array of {id,label,max_marks} where label could be "Q1.A"
@@ -360,6 +354,10 @@ export default function MarksEntry() {
       setExam((prev) =>
         prev ? ({ ...prev, is_locked: true } as ExamOut) : prev
       );
+
+      // mark that THIS teacher finalized it (so banner shows the teacher message)
+      setIFinalized(true);
+
       alert("Exam submitted. You can no longer edit marks.");
     } catch (err) {
       console.error("Finalize failed", err);
@@ -399,7 +397,7 @@ export default function MarksEntry() {
           String(mainTotalForStudent(s.rollNo, mq))
         );
         const g = String(grandTotalForStudent(s.rollNo));
-        return [academicYear,s.rollNo, ...subVals, ...mainTotals, g];
+        return [academicYear, s.rollNo, ...subVals, ...mainTotals, g];
       }
     });
 
@@ -462,7 +460,7 @@ export default function MarksEntry() {
         subject_name: subjectName,
         exam_type: examName,
         semester,
-        academic_year: academicYear, 
+        academic_year: academicYear,
         questions: questionsPayload,
         students: studentsPayload,
       } as any);
@@ -516,17 +514,56 @@ export default function MarksEntry() {
           </div>
         )}
 
-        {isFinalized && !isAdminView && user?.role === "teacher" && (
-          <div className="bg-red-100 text-red-900 border border-red-200 p-3 rounded-md mb-4 font-semibold">
-            you have submitted and cannot re-edit. contact admin
+        {/* Show appropriate locked message only to the teacher-owner or when admin locked */}
+        {/* 🔒 Teacher-only lock messages (NEVER show for admin) */}
+        {isFinalized && user?.role === "teacher" && !isAdminView && (
+          <div className="mb-4">
+            {(() => {
+              // normalize ids to numbers or null
+              const lockedBy =
+                exam?.locked_by == null ? null : Number(exam.locked_by);
+              const createdBy =
+                exam?.created_by == null ? null : Number(exam.created_by);
+              const myId = user?.id == null ? null : Number(user.id);
+
+              // teacher locked it during this session
+              if (iFinalized) return true;
+
+              // if locked_by is present, teacher locked only if locked_by === myId
+              if (lockedBy !== null) return lockedBy === myId;
+
+              // fallback for older records: if locked_by missing, assume teacher locked if created_by matches
+              if (createdBy !== null) return createdBy === myId;
+
+              return false;
+            })() ? (
+              <div className="bg-red-100 text-red-900 border border-red-200 p-3 rounded-md font-semibold">
+                You have submitted and cannot re-edit. Contact admin.
+              </div>
+            ) : (
+              <div className="bg-yellow-900/80 text-yellow-100 border border-yellow-700 p-3 rounded-md font-semibold">
+                Admin has locked the exam. Kindly contact admin to unlock.
+              </div>
+            )}
           </div>
         )}
 
-        {isFinalized && isAdminView && (
-          <div className="bg-blue-900/40 text-blue-200 px-3 py-2 rounded text-xs">
-            Exam has been final submitted by the teacher.
-          </div>
-        )}
+        {/* Admin view → show teacher-submitted banner ONLY if teacher actually finalized */}
+        {isFinalized &&
+          isAdminView &&
+          (() => {
+            const lockedBy =
+              exam?.locked_by == null ? null : Number(exam.locked_by);
+            const createdBy =
+              exam?.created_by == null ? null : Number(exam.created_by);
+            return lockedBy !== null &&
+              createdBy !== null &&
+              lockedBy === createdBy ? (
+              <div className="bg-blue-900/40 text-blue-200 px-3 py-2 rounded text-xs">
+                Exam has been final submitted by the teacher.
+              </div>
+            ) : null;
+          })()}
 
         {error && <p className="text-red-500">{error}</p>}
 
@@ -577,17 +614,17 @@ export default function MarksEntry() {
           </div>
 
           {/* Academic Year */}
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400">Academic Year</span>
-              <input
-                type="text"
-                value={academicYear}
-                onChange={(e) => setAcademicYear(e.target.value)}
-                placeholder="2025-2026"
-                className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400">Academic Year</span>
+            <input
+              type="text"
+              value={academicYear}
+              onChange={(e) => setAcademicYear(e.target.value)}
+              placeholder="2025-2026"
+              className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 
                 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
+            />
+          </div>
 
           <div className="flex items-center gap-2">
             <span className="text-slate-400">Max total</span>
@@ -907,7 +944,7 @@ export default function MarksEntry() {
               className={
                 "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +
                 (examId && examId > 0
-                  ? "bg-green-500 text-slate-100 hover:bg-slate-800"
+                  ? "bg-green-500 text-slate-100 hover:bg-green-700"
                   : "bg-green-500/60 text-slate-500 cursor-not-allowed") +
                 (disabled ? " opacity-50 cursor-not-allowed" : "")
               }

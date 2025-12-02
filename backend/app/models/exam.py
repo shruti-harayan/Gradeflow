@@ -16,7 +16,8 @@ class Exam(Base):
     academic_year= Column(String, nullable=False)
     students_count = Column(Integer, default=0)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    is_locked = Column(Boolean, default=False, nullable=False)
+    locked_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    is_locked = Column(Boolean, default=False, nullable=False) 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

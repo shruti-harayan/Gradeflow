@@ -17,42 +17,40 @@ router = APIRouter()
 
 
 @router.post("/{exam_id}/finalize")
-def finalize_exam(exam_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    Exam = models.exam.Exam  # type: ignore[attr-defined]
+def finalize_exam(exam_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),):
 
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    # If already locked, return ok
-    if getattr(exam, "is_locked", False):
-        return {"status": "ok", "message": "Exam already finalized"}
-
-    # Authorization: allow if current_user is admin OR current_user.id == exam.created_by
-    if current_user.role != "admin" and exam.created_by is not None and int(current_user.id) != int(exam.created_by):
-        raise HTTPException(status_code=403, detail="Only the exam owner or admin can finalize")
-
     exam.is_locked = True
+    exam.locked_by = current_user.id 
     db.add(exam)
     db.commit()
-    return {"status": "ok", "message": "Exam finalized (locked)."}
+    db.refresh(exam)
+    return {"status": "ok", "exam": exam}
 
 
 @router.post("/{exam_id}/unfinalize", dependencies=[Depends(admin_required)])
-def unfinalize_exam(exam_id: int, db: Session = Depends(get_db)):
-    Exam = models.exam.Exam  # type: ignore[attr-defined]
+def unfinalize_exam(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # require admin
+    if getattr(current_user, "role", None) != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
 
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    if not getattr(exam, "is_locked", False):
-        return {"status": "ok", "message": "Exam not locked"}
-
     exam.is_locked = False
+    exam.locked_by = None  
     db.add(exam)
     db.commit()
-    return {"status": "ok", "message": "Exam unlocked for editing."}
+    db.refresh(exam)
+    return {"status": "ok", "exam": exam}
 
 
 @router.get("/", response_model=List[ExamOut])
@@ -73,7 +71,8 @@ def create_exam(
         subject_name=exam_in.subject_name,
         exam_type=exam_in.exam_type,
         semester=exam_in.semester,
-        created_by=current_user.id  
+        created_by=current_user.id,
+        academic_year=exam_in.academic_year
     )
 
     db.add(exam)
@@ -254,13 +253,12 @@ def export_exam_csv(exam_id: int, db: Session = Depends(get_db)):
 
     # Header
     question_headers = [q.label for q in questions]
-    writer.writerow(["Roll No", "Name", "Absent"] + question_headers + ["Total"])
+    writer.writerow(["Roll No", "Absent"] + question_headers + ["Total"])
 
     # Data rows
     for s in students:
         row = [
             s.roll_no,
-            s.name,
             "AB" if s.absent else "",
         ]
         total = 0

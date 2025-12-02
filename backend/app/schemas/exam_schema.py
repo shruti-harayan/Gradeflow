@@ -17,11 +17,13 @@ class ExamCreate(ExamBase):
 
 class ExamOut(ExamBase):
     id: int
-    created_at: datetime | None = None
+    created_at: Optional[datetime] = None
     is_locked: bool = False
+    locked_by: Optional[int] = None
+    created_by: Optional[int]=None
 
     class Config:
-        from_attributes = True
+       orm_mode = True
 
 
 class QuestionIn(BaseModel):
