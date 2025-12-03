@@ -71,9 +71,9 @@ export default function Header() {
               <HeaderLink to="/login" currentPath={location.pathname}>
                 Login
               </HeaderLink>
-              <HeaderLink to="/signup" currentPath={location.pathname}>
+              {/* <HeaderLink to="/signup" currentPath={location.pathname}>
                 Signup
-              </HeaderLink>
+              </HeaderLink> */}
             </nav>
           )}
 

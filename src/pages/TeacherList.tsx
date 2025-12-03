@@ -12,7 +12,7 @@ type Teacher = {
   created_at?: string;
 };
 
-export default function TeacherList() {
+function TeacherList() {
   const [teachers, setTeachers] = React.useState<Teacher[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -21,9 +21,6 @@ export default function TeacherList() {
   //const [resetting, setResetting] = React.useState(false);
 
   React.useEffect(() => {
-    load();
-  }, []);
-
   async function load() {
     setLoading(true);
     setErr(null);
@@ -36,24 +33,35 @@ export default function TeacherList() {
       setLoading(false);
     }
   }
+  load();
+  }, []);
 
-  async function toggleFreeze(t: Teacher) {
+    async function toggleFreeze(t: Teacher) {
     try {
+      // Optimistic: compute new value and update UI immediately
+      const newFrozen = !t.is_frozen;
+      // Update UI locally for snappiness
+      setTeachers(prev => prev.map(x => x.id === t.id ? { ...x, is_frozen: newFrozen } : x));
+
       if (t.is_frozen) {
         await api.post(`/auth/admin/teachers/${t.id}/unfreeze`);
       } else {
         await api.post(`/auth/admin/teachers/${t.id}/freeze`);
       }
-      await load();
+
+      // Optionally re-fetch single teacher or show toast (kept minimal)
     } catch (e: any) {
+      // revert local change if API failed
+      setTeachers(prev => prev.map(x => x.id === t.id ? { ...x, is_frozen: t.is_frozen } : x));
       alert(e?.response?.data?.detail || "Action failed");
     }
   }
 
 
+
   const { user } = useAuth();
 
-  async function handleResetPassword(teacherId: number) {
+    async function handleResetPassword(teacherId: number) {
     // Only allow admins in UI too
     if (user?.role !== "admin") {
       alert("Only admins can reset passwords.");
@@ -68,18 +76,22 @@ export default function TeacherList() {
     }
 
     try {
-      const token = localStorage.getItem("gf_token"); 
-      await api.post(
-        `/auth/admin-reset-password/${teacherId}`,
-        { password: newPassword },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // prefer letting api layer send auth header; but if your api requires manual token:
+      // const token = localStorage.getItem("gf_token");
+      // await api.post(`/auth/admin-reset-password/${teacherId}`, { password: newPassword }, { headers: { Authorization: `Bearer ${token}` } });
+
+      const resp = await api.post(`/auth/admin-reset-password/${teacherId}`, { password: newPassword });
+      // If server returns temporary password or message, show it in the UI modal area
+      const temp = resp?.data?.temporary_password || resp?.data?.password || null;
+      setTempPassword(temp);
+      setShowResetFor(teacherId);
       alert("Password updated. Share it securely with the teacher.");
     } catch (err: any) {
       console.error("Reset failed", err);
       alert(err?.response?.data?.detail || "Failed to reset password");
     }
-  }  
+  }
+
 
   return (
     <div className="p-6">
@@ -136,3 +148,4 @@ export default function TeacherList() {
     </div>
   );
 }
+export default React.memo(TeacherList);

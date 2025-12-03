@@ -1,6 +1,5 @@
 // src/pages/AdminDashboard.tsx
 import React from "react";
-
 import {
   getExams,
   downloadExamCsv,
@@ -19,36 +18,143 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  // filters
+  const [subjectFilter, setSubjectFilter] = React.useState<string>("");
+  const [yearFilter, setYearFilter] = React.useState<string>("");
+
+  // validation / messages
+  const [filterError, setFilterError] = React.useState<string | null>(null);
+  const [noResultsMessage, setNoResultsMessage] = React.useState<string | null>(null);
+
   // modal state for confirm lock/unlock
   const [modalOpen, setModalOpen] = React.useState(false);
   const [modalExam, setModalExam] = React.useState<ExamOut | null>(null);
-  const [modalAction, setModalAction] = React.useState<
-    "lock" | "unlock" | null
-  >(null);
+  const [modalAction, setModalAction] = React.useState<"lock" | "unlock" | null>(null);
 
   // inline toast
   const [toast, setToast] = React.useState<string | null>(null);
   const toastTimerRef = React.useRef<number | null>(null);
 
-  React.useEffect(() => {
-    async function load() {
-      try {
-        const data = await getExams();
-        console.log("Loaded exams (debug):", data);
+  // single debounce timer ref used by scheduleLoad
+  const debounceRef = React.useRef<number | null>(null);
 
-        setExams(data);
-      } catch (err) {
-        console.error("Failed to load exams", err);
-        setError("Failed to load exams from server");
-      } finally {
+  // Prevent accidental form submissions (page reload) coming from parent forms or implicit submits
+  React.useEffect(() => {
+    const onSubmit = (ev: Event) => {
+      try {
+        ev.preventDefault();
+      } catch (e) {}
+    };
+    document.addEventListener("submit", onSubmit, true); // capture phase
+    return () => document.removeEventListener("submit", onSubmit, true);
+  }, []);
+
+  // loadExams moved to component scope so buttons and debounce can call it
+  async function loadExams(filters?: { subject?: string; academic_year?: string }) {
+    setLoading(true);
+    setFilterError(null);
+    setNoResultsMessage(null);
+
+    // Validate academic year format if provided (YYYY-YYYY)
+    if (filters?.academic_year && filters.academic_year.trim()) {
+      const v = filters.academic_year.trim();
+      const yearRe = /^\d{4}-\d{4}$/;
+      if (!yearRe.test(v)) {
         setLoading(false);
+        setFilterError('Academic year must be in format "YYYY-YYYY" (eg. 2025-2026).');
+        setExams([]);
+        return;
       }
     }
-    load();
+
+    try {
+      // map friendly keys -> service query param names
+      const params: Record<string, string> = {};
+      if (filters?.subject && filters.subject.trim()) params.subject_name = filters.subject.trim();
+      if (filters?.academic_year && filters.academic_year.trim())
+        params.academic_year = filters.academic_year.trim();
+
+      const data = await getExams(params);
+
+// Debug helper — uncomment if you want to inspect what we sent/received
+// console.log("getExams params:", params, "response count:", Array.isArray(data) ? data.length : typeof data);
+
+// If the backend returned something, try to detect "no match" for subject client-side.
+// (This covers cases where backend ignored the subject filter.)
+let noResults = false;
+let noResultsMsg: string | null = null;
+
+if (Array.isArray(data)) {
+  // If server returned zero rows, it's definitely no results.
+  if (data.length === 0 && (params.subject_name || params.academic_year)) {
+    noResults = true;
+    if (params.subject_name && params.academic_year) {
+      noResultsMsg = `No exams found for subject "${params.subject_name}" in academic year "${params.academic_year}".`;
+    } else if (params.subject_name) {
+      noResultsMsg = `No exams found for subject "${params.subject_name}".`;
+    } else {
+      noResultsMsg = `No exams found for academic year "${params.academic_year}".`;
+    }
+  } else if (params.subject_name && data.length > 0) {
+    // If server returned rows but none match the requested subject, treat as "no results".
+    const matchFound = data.some((e: any) =>
+      (e.subject_name || "").toLowerCase().includes(String(params.subject_name).toLowerCase())
+    );
+    if (!matchFound) {
+      noResults = true;
+      noResultsMsg = `No exams found for subject "${params.subject_name}".`;
+    }
+  }
+
+  // Similarly, if academic_year was supplied and server returned rows but none match:
+  if (!noResults && params.academic_year && data.length > 0) {
+    const yearMatch = data.some((e: any) =>
+      String(e.academic_year || "").toLowerCase().includes(String(params.academic_year).toLowerCase())
+    );
+    if (!yearMatch) {
+      noResults = true;
+      noResultsMsg = params.subject_name
+        ? `No exams found for subject "${params.subject_name}" in academic year "${params.academic_year}".`
+        : `No exams found for academic year "${params.academic_year}".`;
+    }
+  }
+
+  if (noResults) {
+    // show message and clear list (so admin sees the "no results" state)
+    setExams([]);
+    setNoResultsMessage(noResultsMsg);
+  } else {
+    // normal case: show returned exams
+    setExams(data);
+    setNoResultsMessage(null);
+  }
+} else {
+  // If server returns a non-array value (unexpected), still set it and clear messages.
+  setExams(Array.isArray(data) ? data : []);
+  setNoResultsMessage(null);
+}
+
+setError(null);
+
+    } catch (err) {
+      console.error("Failed to load exams", err);
+      setError("Failed to load exams from server");
+      setExams([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // On mount, load with no filters
+  React.useEffect(() => {
+    loadExams();
 
     return () => {
+      // cleanup timers
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function showToast(msg: string) {
@@ -58,10 +164,7 @@ export default function AdminDashboard() {
   }
 
   // Toggle via API (kept same semantics as previously)
-  async function toggleExamLockDirect(
-    examId: number,
-    currentlyLocked: boolean
-  ) {
+  async function toggleExamLockDirect(examId: number, currentlyLocked: boolean) {
     try {
       if (currentlyLocked) {
         await unfinalizeExam(examId);
@@ -139,6 +242,82 @@ export default function AdminDashboard() {
       <p className="text-xs text-slate-400">
         Manage exams and download CSV reports created by teachers.
       </p>
+
+      {/* Filters: Subject name & Academic year */}
+<div className="flex flex-wrap gap-3 items-center mt-3">
+  <input
+    type="text"
+    placeholder="Filter by subject name (eg. Algorithms)"
+    value={subjectFilter}
+    onChange={(e) => {
+      // only update local state — do NOT call loadExams here
+      setSubjectFilter(e.target.value);
+      setNoResultsMessage(null);
+      setFilterError(null);
+    }}
+    onKeyDown={(e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        // apply on Enter using current typed value
+        const val = (e.currentTarget as HTMLInputElement).value;
+        loadExams({ subject: val, academic_year: yearFilter });
+      }
+    }}
+    className="w-72 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 text-sm"
+  />
+
+  <input
+    type="text"
+    placeholder="Academic year (eg. 2025-2026)"
+    value={yearFilter}
+    onChange={(e) => {
+      // only update local state — do NOT call loadExams here
+      setYearFilter(e.target.value);
+      setNoResultsMessage(null);
+      setFilterError(null);
+    }}
+    onKeyDown={(e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const val = (e.currentTarget as HTMLInputElement).value;
+        loadExams({ subject: subjectFilter, academic_year: val });
+      }
+    }}
+    className="w-36 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 text-sm"
+  />
+
+  <button
+    type="button"
+    onClick={(e) => {
+      e.preventDefault();
+      setNoResultsMessage(null);
+      setFilterError(null);
+      loadExams({ subject: subjectFilter, academic_year: yearFilter });
+    }}
+    className="rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+  >
+    Apply
+  </button>
+
+  <button
+    type="button"
+    onClick={(e) => {
+      e.preventDefault();
+      setSubjectFilter("");
+      setYearFilter("");
+      setNoResultsMessage(null);
+      setFilterError(null);
+      loadExams({});
+    }}
+    className="rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800"
+  >
+    Clear
+  </button>
+</div>
+
+      {/* validation or no-results messages */}
+      {filterError && <p className="text-yellow-400 text-sm mt-2">{filterError}</p>}
+      {noResultsMessage && <p className="text-slate-400 text-sm mt-2 italic">{noResultsMessage}</p>}
 
       <div className="flex items-center gap-3">
         <Link
@@ -323,8 +502,8 @@ export default function AdminDashboard() {
             ))}
           </div>
 
-          {exams.length === 0 && (
-            <p className="text-xs text-slate-500">
+          {exams.length === 0 && !loading && (
+            <p className="text-xs text-slate-500 mt-4">
               No exams found in system. Ask teachers to create 📝
             </p>
           )}

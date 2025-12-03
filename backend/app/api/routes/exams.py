@@ -1,5 +1,5 @@
 # backend/app/api/routes/exams.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.schemas.exam_schema import ExamCreate, ExamOut, MarksSaveRequest,ExamMarksOut
 from app.models.exam import Exam, Question, Student, Mark
 from sqlalchemy.orm import Session
@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 import csv
 from io import StringIO
 from app import models
-from typing import List
+from typing import List,Optional
 from app.api.dependencies import admin_required
 from app.core.security import get_current_user
 from app.models.user import User
@@ -54,9 +54,29 @@ def unfinalize_exam(
 
 
 @router.get("/", response_model=List[ExamOut])
-def list_exams(db: Session = Depends(get_db)):
-    exams = db.query(Exam).order_by(Exam.created_at.desc()).all()
+def list_exams(
+    subject_name: Optional[str] = Query(None),
+    academic_year: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+
+    q = db.query(Exam)
+
+    # Apply server-side filters if provided
+    if subject_name:
+        # case-insensitive partial match
+        q = q.filter(Exam.subject_name.ilike(f"%{subject_name.strip()}%"))
+    if academic_year:
+        q = q.filter(Exam.academic_year.ilike(f"%{academic_year.strip()}%"))
+
+    # IMPORTANT: limit non-admins to their own exams only
+    if getattr(current_user, "role", None) != "admin":
+        q = q.filter(Exam.created_by == current_user.id)
+
+    exams = q.order_by(Exam.created_at.desc()).all()
     return exams
+
 
 @router.post("/", response_model=ExamOut)
 def create_exam(

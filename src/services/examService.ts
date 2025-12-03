@@ -70,10 +70,17 @@ export async function getExamMarks(examId: number) {
   return res.data;
 }
 
-export async function getExams() {
-  const res = await api.get<ExamOut[]>("/exams");
-  return res.data;
+
+export async function getExams(params?: { subject?: string; academic_year?: string }) {
+  // trim empty strings so we don't send blank params
+  const p: Record<string, string> = {};
+  if (params?.subject && params.subject.trim()) p.subject_name = params.subject.trim();
+  if (params?.academic_year && params.academic_year.trim()) p.academic_year = params.academic_year.trim();
+
+  const resp = await api.get("/exams", { params: p });
+  return resp.data;
 }
+
 
 export async function createExam(payload: ExamCreatePayload) {
   const res = await api.post<ExamOut>("/exams", payload);
