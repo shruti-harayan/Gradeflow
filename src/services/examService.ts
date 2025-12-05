@@ -71,15 +71,23 @@ export async function getExamMarks(examId: number) {
 }
 
 
-export async function getExams(params?: { subject?: string; academic_year?: string }) {
-  // trim empty strings so we don't send blank params
+
+export async function getExams(params?: {
+  subject_name?: string;
+  academic_year?: string;
+  creator_id?: string | number;
+}) {
+  // remove empty params (optional but helpful)
   const p: Record<string, string> = {};
-  if (params?.subject && params.subject.trim()) p.subject_name = params.subject.trim();
-  if (params?.academic_year && params.academic_year.trim()) p.academic_year = params.academic_year.trim();
+  if (params?.subject_name) p.subject_name = String(params.subject_name);
+  if (params?.academic_year) p.academic_year = String(params.academic_year);
+  if (params?.creator_id !== undefined && params?.creator_id !== null)
+    p.creator_id = String(params.creator_id);
 
   const resp = await api.get("/exams", { params: p });
   return resp.data;
 }
+
 
 
 export async function createExam(payload: ExamCreatePayload) {

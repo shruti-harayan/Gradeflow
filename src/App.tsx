@@ -10,6 +10,8 @@ import MarksEntry from "./pages/MarksEntry";
 import ProtectedRoute from "./components/ProtectedRoute";
 import CreateTeacher from "./pages/CreateTeacher";
 import TeacherList from "./pages/TeacherList";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 export default function App() {
   return (
@@ -72,6 +74,9 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
         </Routes>
       </main>
       <footer className="border-t border-gray-700 py-6 text-center text-sm text-gray-400">

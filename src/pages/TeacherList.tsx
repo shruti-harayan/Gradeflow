@@ -12,57 +12,59 @@ type Teacher = {
   created_at?: string;
 };
 
-function TeacherList() {
+type TeacherListProps = {
+  onSelectTeacher?: (teacherId: number, teacherName: string) => void;
+};
+
+function TeacherList({ onSelectTeacher }: TeacherListProps) {
   const [teachers, setTeachers] = React.useState<Teacher[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [showResetFor, setShowResetFor] = React.useState<number | null>(null);
   const [tempPassword, setTempPassword] = React.useState<string | null>(null);
-  //const [resetting, setResetting] = React.useState(false);
+
+  const { user } = useAuth();
 
   React.useEffect(() => {
-  async function load() {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await api.get("/auth/admin/teachers");
-      setTeachers(res.data);
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail || "Failed to load teachers");
-    } finally {
-      setLoading(false);
+    async function load() {
+      setLoading(true);
+      setErr(null);
+      try {
+        const res = await api.get("/auth/admin/teachers");
+        setTeachers(res.data || []);
+      } catch (e: any) {
+        setErr(e?.response?.data?.detail || "Failed to load teachers");
+      } finally {
+        setLoading(false);
+      }
     }
-  }
-  load();
+    load();
   }, []);
 
-    async function toggleFreeze(t: Teacher) {
+  // toggle Freeze / Unfreeze
+  async function toggleFreeze(t: Teacher, e?: React.MouseEvent) {
+    e?.stopPropagation();
     try {
-      // Optimistic: compute new value and update UI immediately
       const newFrozen = !t.is_frozen;
-      // Update UI locally for snappiness
-      setTeachers(prev => prev.map(x => x.id === t.id ? { ...x, is_frozen: newFrozen } : x));
+      // optimistic update
+      setTeachers((prev) => prev.map((x) => (x.id === t.id ? { ...x, is_frozen: newFrozen } : x)));
 
       if (t.is_frozen) {
         await api.post(`/auth/admin/teachers/${t.id}/unfreeze`);
       } else {
         await api.post(`/auth/admin/teachers/${t.id}/freeze`);
       }
-
-      // Optionally re-fetch single teacher or show toast (kept minimal)
-    } catch (e: any) {
-      // revert local change if API failed
-      setTeachers(prev => prev.map(x => x.id === t.id ? { ...x, is_frozen: t.is_frozen } : x));
-      alert(e?.response?.data?.detail || "Action failed");
+      // success: keep optimistic state
+    } catch (err: any) {
+      // revert on failure
+      setTeachers((prev) => prev.map((x) => (x.id === t.id ? { ...x, is_frozen: t.is_frozen } : x)));
+      alert(err?.response?.data?.detail || "Action failed");
     }
   }
 
-
-
-  const { user } = useAuth();
-
-    async function handleResetPassword(teacherId: number) {
-    // Only allow admins in UI too
+  // Reset password (admin enters password manually)
+  async function handleResetPassword(t: Teacher, e?: React.MouseEvent) {
+    e?.stopPropagation();
     if (user?.role !== "admin") {
       alert("Only admins can reset passwords.");
       return;
@@ -76,15 +78,11 @@ function TeacherList() {
     }
 
     try {
-      // prefer letting api layer send auth header; but if your api requires manual token:
-      // const token = localStorage.getItem("gf_token");
-      // await api.post(`/auth/admin-reset-password/${teacherId}`, { password: newPassword }, { headers: { Authorization: `Bearer ${token}` } });
-
-      const resp = await api.post(`/auth/admin-reset-password/${teacherId}`, { password: newPassword });
-      // If server returns temporary password or message, show it in the UI modal area
-      const temp = resp?.data?.temporary_password || resp?.data?.password || null;
+      const resp = await api.post(`/auth/admin-reset-password/${t.id}`, { password: newPassword });
+      // Prefer server-provided temporary password if present, otherwise show the one admin entered.
+      const temp = resp?.data?.temporary_password || resp?.data?.password || newPassword || null;
       setTempPassword(temp);
-      setShowResetFor(teacherId);
+      setShowResetFor(t.id);
       alert("Password updated. Share it securely with the teacher.");
     } catch (err: any) {
       console.error("Reset failed", err);
@@ -92,37 +90,61 @@ function TeacherList() {
     }
   }
 
+  if (loading) {
+    return <p className="text-slate-400">Loading teachers...</p>;
+  }
+
+  if (err) {
+    return <p className="text-red-400">{err}</p>;
+  }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">Teachers List</h2>
-      </div>
+    <div>
+      <h2 className="text-lg font-semibold text-white">Teachers List</h2>
 
-      {loading && <div className="text-slate-300">Loading...</div>}
-      {err && <div className="text-red-400">{err}</div>}
-
-      <div className="grid gap-3">
+      <div className="space-y-3 mt-4">
         {teachers.map((t) => (
-          <div key={t.id} className="flex items-center justify-between bg-slate-800 p-4 rounded-md">
-            <div>
-              <div className="text-sm text-slate-200 font-medium">{t.name ?? t.email}</div>
-              <div className="text-xs text-slate-400">{t.email}</div>
-              <div className="text-xs text-amber-400 mt-1">{t.role}</div>
-              <div className="text-xs text-slate-400">{t.created_at}</div>
-            </div>
+          <div
+            key={t.id}
+            role="button"
+            onClick={() => onSelectTeacher?.(t.id, t.name ?? `${t.email}`)}
+            className="cursor-pointer rounded-lg bg-slate-900 p-4 hover:bg-slate-800 transition"
+            title="Click to view exams by this teacher"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-white font-semibold">{t.name ?? "—"}</div>
+                <div className="text-slate-400 text-xs">{t.email}</div>
+              </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                className={`px-3 py-1 rounded-md text-sm ${t.is_frozen ? "bg-gray-600 text-white" : "bg-emerald-500 text-white hover:bg-emerald-600"}`}
-                onClick={() => toggleFreeze(t)}
-              >
-                {t.is_frozen ? "Unfreeze" : "Freeze"}
-              </button>
+              <div className="flex items-center gap-3">
+                <div>
+                  {t.is_frozen ? (
+                    <span className="text-amber-300 text-xs italic">Frozen</span>
+                  ) : (
+                    <span className="text-emerald-300 text-xs italic">Active</span>
+                  )}
+                </div>
 
-              <button
-                className="px-3 py-1 rounded-md bg-indigo-600 text-white text-sm"
-                onClick={() =>  handleResetPassword(t.id)}>Reset password</button>
+                {/* Freeze / Reset buttons (stop propagation so they don't trigger select) */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => toggleFreeze(t, e)}
+                    className={`px-3 py-1 rounded-md text-sm ${
+                      t.is_frozen ? "bg-gray-600 text-white" : "bg-emerald-500 text-white hover:bg-emerald-600"
+                    }`}
+                  >
+                    {t.is_frozen ? "Unfreeze" : "Freeze"}
+                  </button>
+
+                  <button
+                    onClick={(e) => handleResetPassword(t, e)}
+                    className="px-3 py-1 rounded-md bg-indigo-600 text-white text-sm"
+                  >
+                    Reset password
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         ))}
@@ -138,7 +160,13 @@ function TeacherList() {
               <code className="text-sm text-emerald-300 break-all">{tempPassword ?? "—"}</code>
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button className="px-3 py-1 bg-gray-600 rounded text-white" onClick={() => { setShowResetFor(null); setTempPassword(null); }}>
+              <button
+                className="px-3 py-1 bg-gray-600 rounded text-white"
+                onClick={() => {
+                  setShowResetFor(null);
+                  setTempPassword(null);
+                }}
+              >
                 Close
               </button>
             </div>
@@ -148,4 +176,5 @@ function TeacherList() {
     </div>
   );
 }
+
 export default React.memo(TeacherList);

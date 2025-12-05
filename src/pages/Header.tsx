@@ -48,7 +48,7 @@ export default function Header() {
 
           {/* College Name */}
           <h2 className="text-lg font-extrabold text-sky-300 drop-shadow-md tracking-wide whitespace-nowrap">
-            RAMANAND ARYA D.A.V. COLLEGE
+            RAMANAND ARYA D.A.V. COLLEGE (AUTONOMOUS)
           </h2>
 
           {/* Tagline / Affiliation */}
@@ -71,9 +71,9 @@ export default function Header() {
               <HeaderLink to="/login" currentPath={location.pathname}>
                 Login
               </HeaderLink>
-              {/* <HeaderLink to="/signup" currentPath={location.pathname}>
+               {/* <HeaderLink to="/signup" currentPath={location.pathname}>
                 Signup
-              </HeaderLink> */}
+              </HeaderLink>  */}
             </nav>
           )}
 

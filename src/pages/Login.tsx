@@ -1,6 +1,6 @@
 // src/pages/Login.tsx
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { login } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 
@@ -67,34 +67,48 @@ export default function Login() {
             />
           </div>
 
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-slate-200">
+          {/* Password row: label (left) + forgot link (right) */}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-slate-200 select-none">
                 Password
               </label>
             </div>
 
-            <div className="relative mt-1">
-              <input
-                type={showPassword ? "text" : "password"}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••"
-                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 pr-12"
-              />
-
-              {/* Eye toggle */}
-              <button
-                type="button"
-                onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+            <div className="text-right">
+              <Link
+                to="/forgot-password"
+                className="text-xs text-sky-400 hover:underline"
               >
-                {showPassword ? "🙈" : "👁️"}
-              </button>
+                Forgot Password?
+              </Link>
             </div>
           </div>
+
+          {/* Password input with eye toggle */}
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 pr-12 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              aria-label="Password"
+              autoComplete="current-password"
+            />
+
+            {/* Eye toggle button inside input (right side) */}
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {/* simple emoji/icon; replace with SVG if you prefer */}
+              {showPassword ? "🙈" : "👁️"}
+            </button>
+          </div>
+
           {error && <p className="text-xs text-red-400">{error}</p>}
 
           <button
@@ -105,7 +119,6 @@ export default function Login() {
             {loading ? "Logging in..." : "Login"}
           </button>
         </form>
-
       </div>
     </div>
   );

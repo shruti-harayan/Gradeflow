@@ -1,5 +1,6 @@
 import React from "react";
 import { api } from "../services/api";
+import type { Role } from "../services/authService";
 
 export default function CreateTeacher() {
   const [name, setName] = React.useState("");
@@ -9,6 +10,7 @@ export default function CreateTeacher() {
   const [error, setError] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  const [role, setRole] = React.useState<Role>("teacher");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,7 +28,7 @@ export default function CreateTeacher() {
           name,
           email,
           password,
-          role: "teacher",
+          role,
         },
         {
           headers: {
@@ -35,13 +37,13 @@ export default function CreateTeacher() {
         }
       );
 
-      setSuccess("Teacher account created successfully.");
+      setSuccess("Account created successfully.");
       setName("");
       setEmail("");
       setPassword("");
     } catch (err: any) {
       // Convert FastAPI/Pydantic 422 detail into a readable string
-      let message = "Failed to create teacher";
+      let message = "Failed to create new account.";
       const resp = err?.response?.data;
       if (resp) {
         if (Array.isArray(resp.detail)) {
@@ -77,7 +79,7 @@ export default function CreateTeacher() {
         className="w-full max-w-md p-6 bg-slate-800 rounded-xl shadow-xl"
       >
         <h2 className="text-2xl font-semibold text-white mb-4">
-          Create Teacher Account
+          Create New Account
         </h2>
 
         {success && <p className="text-emerald-400 mb-2">{success}</p>}
@@ -129,6 +131,27 @@ export default function CreateTeacher() {
             {showPassword ? "🙈" : "👁️"}
           </button>
         </div>
+
+        {/* Role dropdown */}
+        <div>
+          <label className="text-sm font-medium text-slate-200">Role</label>
+          <select
+            name="role"
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="teacher">Teacher</option>
+            <option value="admin">Admin</option>
+          </select>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Choose <span className="text-emerald-300">Teacher</span> for mark
+            entry, <span className="text-emerald-300">Admin</span> for report
+            downloads.
+          </p>
+        </div>
+
+        {error && <div className="error">{error}</div>}
 
         <button
           type="submit"

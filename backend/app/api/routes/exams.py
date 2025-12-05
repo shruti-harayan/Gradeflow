@@ -58,6 +58,7 @@ def list_exams(
     subject_name: Optional[str] = Query(None),
     academic_year: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    creator_id: Optional[int] = Query(None),
     current_user: User = Depends(get_current_user),
 ):
 
@@ -69,10 +70,16 @@ def list_exams(
         q = q.filter(Exam.subject_name.ilike(f"%{subject_name.strip()}%"))
     if academic_year:
         q = q.filter(Exam.academic_year.ilike(f"%{academic_year.strip()}%"))
-
-    # IMPORTANT: limit non-admins to their own exams only
-    if getattr(current_user, "role", None) != "admin":
-        q = q.filter(Exam.created_by == current_user.id)
+# If an admin requested a specific creator_id, apply that
+    if creator_id is not None:
+        # only allow admins to query arbitrary creator_id
+        if getattr(current_user, "role", None) != "admin":
+            raise HTTPException(status_code=403, detail="Admin privileges required")
+        q = q.filter(Exam.created_by == creator_id)
+    else:
+        # if no creator_id provided, non-admins see only their own exams
+        if getattr(current_user, "role", None) != "admin":
+            q = q.filter(Exam.created_by == current_user.id)
 
     exams = q.order_by(Exam.created_at.desc()).all()
     return exams

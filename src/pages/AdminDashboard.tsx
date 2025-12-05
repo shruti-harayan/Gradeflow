@@ -10,6 +10,7 @@ import {
 import TeacherList from "./TeacherList";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { api } from "../services/api";
 
 export default function AdminDashboard() {
   const [exams, setExams] = React.useState<ExamOut[]>([]);
@@ -18,18 +19,46 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const [selectedTeacherId, setSelectedTeacherId] = React.useState<
+    number | null
+  >(null);
+  const [selectedTeacherName, setSelectedTeacherName] = React.useState<
+    string | null
+  >(null);
+
   // filters
   const [subjectFilter, setSubjectFilter] = React.useState<string>("");
   const [yearFilter, setYearFilter] = React.useState<string>("");
 
   // validation / messages
   const [filterError, setFilterError] = React.useState<string | null>(null);
-  const [noResultsMessage, setNoResultsMessage] = React.useState<string | null>(null);
+  const [noResultsMessage, setNoResultsMessage] = React.useState<string | null>(
+    null
+  );
 
   // modal state for confirm lock/unlock
   const [modalOpen, setModalOpen] = React.useState(false);
   const [modalExam, setModalExam] = React.useState<ExamOut | null>(null);
-  const [modalAction, setModalAction] = React.useState<"lock" | "unlock" | null>(null);
+  const [modalAction, setModalAction] = React.useState<
+    "lock" | "unlock" | null
+  >(null);
+
+  // Change-password modal state
+  const [showChangePwd, setShowChangePwd] = React.useState(false);
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [pwdChangeError, setPwdChangeError] = React.useState<string | null>(
+    null
+  );
+  const [pwdChangeSuccess, setPwdChangeSuccess] = React.useState<string | null>(
+    null
+  );
+
+  // visibility toggles for each password field
+  const [showCurrentPwd, setShowCurrentPwd] = React.useState(false);
+  const [showNewPwd, setShowNewPwd] = React.useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = React.useState(false);
 
   // inline toast
   const [toast, setToast] = React.useState<string | null>(null);
@@ -49,93 +78,104 @@ export default function AdminDashboard() {
     return () => document.removeEventListener("submit", onSubmit, true);
   }, []);
 
-  // loadExams moved to component scope so buttons and debounce can call it
-  async function loadExams(filters?: { subject?: string; academic_year?: string }) {
+  // Replace the existing loadExams with this cleaned-up version
+  async function loadExams(filters?: {
+    subject?: string;
+    academic_year?: string;
+    creator_id?: string | number;
+  }) {
     setLoading(true);
     setFilterError(null);
     setNoResultsMessage(null);
 
     // Validate academic year format if provided (YYYY-YYYY)
-    if (filters?.academic_year && filters.academic_year.trim()) {
-      const v = filters.academic_year.trim();
+    if (filters?.academic_year && String(filters.academic_year).trim()) {
+      const v = String(filters.academic_year).trim();
       const yearRe = /^\d{4}-\d{4}$/;
       if (!yearRe.test(v)) {
         setLoading(false);
-        setFilterError('Academic year must be in format "YYYY-YYYY" (eg. 2025-2026).');
+        setFilterError(
+          'Academic year must be in format "YYYY-YYYY" (eg. 2025-2026).'
+        );
         setExams([]);
         return;
       }
     }
 
     try {
-      // map friendly keys -> service query param names
+      // Build params once and send to backend
       const params: Record<string, string> = {};
-      if (filters?.subject && filters.subject.trim()) params.subject_name = filters.subject.trim();
-      if (filters?.academic_year && filters.academic_year.trim())
-        params.academic_year = filters.academic_year.trim();
+      if (filters?.subject && String(filters.subject).trim())
+        params.subject_name = String(filters.subject).trim();
+      if (filters?.academic_year && String(filters.academic_year).trim())
+        params.academic_year = String(filters.academic_year).trim();
+      if (
+        filters?.creator_id !== undefined &&
+        filters?.creator_id !== null &&
+        String(filters.creator_id).trim()
+      ) {
+        params.creator_id = String(filters.creator_id).trim();
+      }
 
       const data = await getExams(params);
 
-// Debug helper — uncomment if you want to inspect what we sent/received
-// console.log("getExams params:", params, "response count:", Array.isArray(data) ? data.length : typeof data);
+      // Client-side fallback detection for "no results"
+      let noResults = false;
+      let noResultsMsg: string | null = null;
 
-// If the backend returned something, try to detect "no match" for subject client-side.
-// (This covers cases where backend ignored the subject filter.)
-let noResults = false;
-let noResultsMsg: string | null = null;
+      if (Array.isArray(data)) {
+        if (
+          data.length === 0 &&
+          (params.subject_name || params.academic_year || params.creator_id)
+        ) {
+          noResults = true;
+          if (params.subject_name && params.academic_year) {
+            noResultsMsg = `No exams found for subject "${params.subject_name}" in academic year "${params.academic_year}".`;
+          } else if (params.subject_name) {
+            noResultsMsg = `No exams found for subject "${params.subject_name}".`;
+          } else if (params.creator_id) {
+            noResultsMsg = `No exams found for the selected teacher.`;
+          } else {
+            noResultsMsg = `No exams found for academic year "${params.academic_year}".`;
+          }
+        } else if (params.subject_name && data.length > 0) {
+          const matchFound = data.some((e: any) =>
+            (e.subject_name || "")
+              .toLowerCase()
+              .includes(params.subject_name!.toLowerCase())
+          );
+          if (!matchFound) {
+            noResults = true;
+            noResultsMsg = `No exams found for subject "${params.subject_name}".`;
+          }
+        }
+        if (!noResults && params.academic_year && data.length > 0) {
+          const yearMatch = data.some((e: any) =>
+            String(e.academic_year || "")
+              .toLowerCase()
+              .includes(params.academic_year!.toLowerCase())
+          );
+          if (!yearMatch) {
+            noResults = true;
+            noResultsMsg = params.subject_name
+              ? `No exams found for subject "${params.subject_name}" in academic year "${params.academic_year}".`
+              : `No exams found for academic year "${params.academic_year}".`;
+          }
+        }
 
-if (Array.isArray(data)) {
-  // If server returned zero rows, it's definitely no results.
-  if (data.length === 0 && (params.subject_name || params.academic_year)) {
-    noResults = true;
-    if (params.subject_name && params.academic_year) {
-      noResultsMsg = `No exams found for subject "${params.subject_name}" in academic year "${params.academic_year}".`;
-    } else if (params.subject_name) {
-      noResultsMsg = `No exams found for subject "${params.subject_name}".`;
-    } else {
-      noResultsMsg = `No exams found for academic year "${params.academic_year}".`;
-    }
-  } else if (params.subject_name && data.length > 0) {
-    // If server returned rows but none match the requested subject, treat as "no results".
-    const matchFound = data.some((e: any) =>
-      (e.subject_name || "").toLowerCase().includes(String(params.subject_name).toLowerCase())
-    );
-    if (!matchFound) {
-      noResults = true;
-      noResultsMsg = `No exams found for subject "${params.subject_name}".`;
-    }
-  }
+        if (noResults) {
+          setExams([]);
+          setNoResultsMessage(noResultsMsg);
+        } else {
+          setExams(data);
+          setNoResultsMessage(null);
+        }
+      } else {
+        setExams(Array.isArray(data) ? data : []);
+        setNoResultsMessage(null);
+      }
 
-  // Similarly, if academic_year was supplied and server returned rows but none match:
-  if (!noResults && params.academic_year && data.length > 0) {
-    const yearMatch = data.some((e: any) =>
-      String(e.academic_year || "").toLowerCase().includes(String(params.academic_year).toLowerCase())
-    );
-    if (!yearMatch) {
-      noResults = true;
-      noResultsMsg = params.subject_name
-        ? `No exams found for subject "${params.subject_name}" in academic year "${params.academic_year}".`
-        : `No exams found for academic year "${params.academic_year}".`;
-    }
-  }
-
-  if (noResults) {
-    // show message and clear list (so admin sees the "no results" state)
-    setExams([]);
-    setNoResultsMessage(noResultsMsg);
-  } else {
-    // normal case: show returned exams
-    setExams(data);
-    setNoResultsMessage(null);
-  }
-} else {
-  // If server returns a non-array value (unexpected), still set it and clear messages.
-  setExams(Array.isArray(data) ? data : []);
-  setNoResultsMessage(null);
-}
-
-setError(null);
-
+      setError(null);
     } catch (err) {
       console.error("Failed to load exams", err);
       setError("Failed to load exams from server");
@@ -164,7 +204,10 @@ setError(null);
   }
 
   // Toggle via API (kept same semantics as previously)
-  async function toggleExamLockDirect(examId: number, currentlyLocked: boolean) {
+  async function toggleExamLockDirect(
+    examId: number,
+    currentlyLocked: boolean
+  ) {
     try {
       if (currentlyLocked) {
         await unfinalizeExam(examId);
@@ -244,89 +287,273 @@ setError(null);
       </p>
 
       {/* Filters: Subject name & Academic year */}
-<div className="flex flex-wrap gap-3 items-center mt-3">
-  <input
-    type="text"
-    placeholder="Filter by subject name (eg. Algorithms)"
-    value={subjectFilter}
-    onChange={(e) => {
-      // only update local state — do NOT call loadExams here
-      setSubjectFilter(e.target.value);
-      setNoResultsMessage(null);
-      setFilterError(null);
-    }}
-    onKeyDown={(e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        // apply on Enter using current typed value
-        const val = (e.currentTarget as HTMLInputElement).value;
-        loadExams({ subject: val, academic_year: yearFilter });
-      }
-    }}
-    className="w-72 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 text-sm"
-  />
+      <div className="flex flex-wrap gap-3 items-center mt-3">
+        <input
+          type="text"
+          placeholder="Filter by subject name (eg. Algorithms)"
+          value={subjectFilter}
+          onChange={(e) => {
+            // only update local state — do NOT call loadExams here
+            setSubjectFilter(e.target.value);
+            setNoResultsMessage(null);
+            setFilterError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              // apply on Enter using current typed value
+              const val = (e.currentTarget as HTMLInputElement).value;
+              loadExams({ subject: val, academic_year: yearFilter });
+            }
+          }}
+          className="w-72 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 text-sm"
+        />
 
-  <input
-    type="text"
-    placeholder="Academic year (eg. 2025-2026)"
-    value={yearFilter}
-    onChange={(e) => {
-      // only update local state — do NOT call loadExams here
-      setYearFilter(e.target.value);
-      setNoResultsMessage(null);
-      setFilterError(null);
-    }}
-    onKeyDown={(e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        const val = (e.currentTarget as HTMLInputElement).value;
-        loadExams({ subject: subjectFilter, academic_year: val });
-      }
-    }}
-    className="w-36 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 text-sm"
-  />
+        <input
+          type="text"
+          placeholder="Academic year (eg. 2025-2026)"
+          value={yearFilter}
+          onChange={(e) => {
+            // only update local state — do NOT call loadExams here
+            setYearFilter(e.target.value);
+            setNoResultsMessage(null);
+            setFilterError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const val = (e.currentTarget as HTMLInputElement).value;
+              loadExams({ subject: subjectFilter, academic_year: val });
+            }
+          }}
+          className="w-36 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 text-sm"
+        />
 
-  <button
-    type="button"
-    onClick={(e) => {
-      e.preventDefault();
-      setNoResultsMessage(null);
-      setFilterError(null);
-      loadExams({ subject: subjectFilter, academic_year: yearFilter });
-    }}
-    className="rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
-  >
-    Apply
-  </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            setNoResultsMessage(null);
+            setFilterError(null);
+            loadExams({
+              subject: subjectFilter,
+              academic_year: yearFilter,
+              creator_id: selectedTeacherId
+                ? String(selectedTeacherId)
+                : undefined,
+            });
+          }}
+          className="rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+        >
+          Apply
+        </button>
 
-  <button
-    type="button"
-    onClick={(e) => {
-      e.preventDefault();
-      setSubjectFilter("");
-      setYearFilter("");
-      setNoResultsMessage(null);
-      setFilterError(null);
-      loadExams({});
-    }}
-    className="rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800"
-  >
-    Clear
-  </button>
-</div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            setSubjectFilter("");
+            setYearFilter("");
+            setNoResultsMessage(null);
+            setFilterError(null);
+            loadExams({});
+          }}
+          className="rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800"
+        >
+          Clear
+        </button>
+      </div>
 
       {/* validation or no-results messages */}
-      {filterError && <p className="text-yellow-400 text-sm mt-2">{filterError}</p>}
-      {noResultsMessage && <p className="text-slate-400 text-sm mt-2 italic">{noResultsMessage}</p>}
+      {filterError && (
+        <p className="text-yellow-400 text-sm mt-2">{filterError}</p>
+      )}
+      {noResultsMessage && (
+        <p className="text-slate-400 text-sm mt-2 italic">{noResultsMessage}</p>
+      )}
 
+      {/* Create Teacher + Change Password (admin only) */}
       <div className="flex items-center gap-3">
         <Link
           to="/admin/create-teacher"
           className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
         >
-          + Create Teacher
+          + Create Teacher/Admin
         </Link>
+
+        {/* Change password button opens modal */}
+        <button
+          type="button"
+          onClick={() => setShowChangePwd(true)}
+          className="px-3 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 text-sm"
+          title="Change your password"
+        >
+          Change password
+        </button>
       </div>
+
+      {/* Change Password Modal*/}
+      {showChangePwd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-lg bg-slate-900 p-6">
+            <h3 className="text-lg font-semibold text-white">
+              Change Your Current Account's Password
+            </h3>
+            <p className="text-sm text-slate-300 mt-2">
+              Enter your current password and choose a new one.
+            </p>
+
+            {/* Current password */}
+            <div className="mt-4">
+              <label className="text-xs text-slate-400">Current password</label>
+              <div className="relative">
+                <input
+                  type={showCurrentPwd ? "text" : "password"}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPwd((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  aria-label={showCurrentPwd ? "Hide password" : "Show password"}
+                >
+                  {showCurrentPwd ? "🙈" : "👁️"}
+                </button>
+              </div>
+            </div>
+
+            {/* New password */}
+            <div className="mt-3">
+              <label className="text-xs text-slate-400">New password</label>
+              <div className="relative">
+                <input
+                  type={showNewPwd ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPwd((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  aria-label={showNewPwd ? "Hide password" : "Show password"}
+                >
+                  {showNewPwd ? "🙈" : "👁️"}
+                </button>
+              </div>
+            </div>
+
+            {/* Confirm password */}
+            <div className="mt-3">
+              <label className="text-xs text-slate-400">Confirm new password</label>
+              <div className="relative">
+                <input
+                  type={showConfirmPwd ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPwd((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  aria-label={showConfirmPwd ? "Hide password" : "Show password"}
+                >
+                  {showConfirmPwd ? "🙈" : "👁️"}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              {pwdChangeError && (
+                <p className="text-red-400 text-sm">{pwdChangeError}</p>
+              )}
+              {pwdChangeSuccess && (
+                <p className="text-green-400 text-sm">{pwdChangeSuccess}</p>
+              )}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  // close modal and reset
+                  setShowChangePwd(false);
+                  setCurrentPassword("");
+                  setNewPassword("");
+                  setConfirmPassword("");
+                  setPwdChangeError(null);
+                  setPwdChangeSuccess(null);
+                  setShowCurrentPwd(false);
+                  setShowNewPwd(false);
+                  setShowConfirmPwd(false);
+                }}
+                className="rounded px-4 py-2 border border-slate-700 text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={async () => {
+                  // client-side validation
+                  setPwdChangeError(null);
+                  setPwdChangeSuccess(null);
+
+                  if (!currentPassword) {
+                    setPwdChangeError("Please enter your current password.");
+                    return;
+                  }
+                  if (!newPassword || newPassword.length < 6) {
+                    setPwdChangeError(
+                      "New password must be at least 6 characters."
+                    );
+                    return;
+                  }
+                  if (newPassword !== confirmPassword) {
+                    setPwdChangeError(
+                      "New password and confirm password do not match."
+                    );
+                    return;
+                  }
+
+                  try {
+                    // call backend change-password endpoint
+                    await api.post("/auth/change-password", {
+                      current_password: currentPassword,
+                      new_password: newPassword,
+                    });
+                    setPwdChangeSuccess("Password updated successfully.");
+                    // optionally close the modal after success (small delay)
+                    setTimeout(() => {
+                      setShowChangePwd(false);
+                      setCurrentPassword("");
+                      setNewPassword("");
+                      setConfirmPassword("");
+                      setPwdChangeError(null);
+                      setPwdChangeSuccess(null);
+                      setShowCurrentPwd(false);
+                      setShowNewPwd(false);
+                      setShowConfirmPwd(false);
+                    }, 1100);
+                  } catch (err: any) {
+                    console.error("Change password failed", err);
+                    const msg =
+                      err?.response?.data?.detail ||
+                      err?.message ||
+                      "Failed to change password";
+                    setPwdChangeError(String(msg));
+                  }
+                }}
+                className="rounded px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700"
+              >
+                Change Password
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="mt-2 inline-block rounded px-4 py-2 bg-slate-800 text-slate-100">
@@ -337,11 +564,45 @@ setError(null);
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* LEFT: Teacher list (restored as original) */}
         <div className="lg:col-span-1 space-y-4">
-          <TeacherList />
+          <TeacherList
+            onSelectTeacher={(id, name) => {
+              setSelectedTeacherId(id);
+              setSelectedTeacherName(name);
+              // call loadExams for that teacher (admin-only filter)
+              loadExams({
+                subject: subjectFilter,
+                academic_year: yearFilter,
+                creator_id: String(id),
+              });
+            }}
+          />
         </div>
 
         {/* RIGHT: exams */}
         <div className="lg:col-span-2">
+          {selectedTeacherId && (
+            <div className="mb-3 flex items-center gap-3">
+              <div className="rounded-full bg-indigo-600 px-3 py-1 text-white text-sm font-semibold">
+                Showing exams by: {selectedTeacherName}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTeacherId(null);
+                  setSelectedTeacherName(null);
+                  // reload without creator_id
+                  loadExams({
+                    subject: subjectFilter,
+                    academic_year: yearFilter,
+                  });
+                }}
+                className="rounded border px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"
+              >
+                Clear teacher filter
+              </button>
+            </div>
+          )}
+
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-2">
             {exams.map((e) => (
               <div
