@@ -32,7 +32,7 @@ class QuestionIn(BaseModel):
 
 
 class StudentMarksIn(BaseModel):
-    roll_no: str
+    roll_no: int
     name: Optional[str] = None   # Optional student name
     absent: bool = False
     # key = question.label, value = marks or null
@@ -40,6 +40,7 @@ class StudentMarksIn(BaseModel):
 
 
 class MarksSaveRequest(BaseModel):
+    section_id: Optional[int]= None
     subject_code: str
     subject_name: str
     exam_type: str
@@ -59,7 +60,7 @@ class QuestionOut(BaseModel):
 
 class StudentOut(BaseModel):
     id: int
-    roll_no: str
+    roll_no: int
     name: Optional[str] = None   
     absent: bool
 
@@ -78,3 +79,23 @@ class ExamMarksOut(BaseModel):
     questions: List[QuestionOut]
     students: List[StudentOut]
     marks: List[MarkOut]
+
+
+class ExamSectionCreate(BaseModel):
+    exam_id: int
+    section_name: Optional[str] = None
+    roll_start: int
+    roll_end: int
+
+class ExamSectionOut(BaseModel):
+    id: int
+    exam_id: int
+    teacher_id: int
+    section_name: Optional[str]
+    roll_start: int
+    roll_end: int
+    is_locked: bool
+
+    class Config:
+        orm_mode = True
+

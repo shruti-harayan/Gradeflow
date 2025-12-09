@@ -1,5 +1,5 @@
 // src/pages/MarksEntry.tsx
-import React from "react";
+import React, { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   saveExamMarks,
@@ -9,12 +9,21 @@ import {
   type ExamOut,
 } from "../services/examService";
 import { useAuth } from "../context/AuthContext";
+import { api } from "../services/api";
+//import CreateSectionForm, { type Section } from "../pages/CreateSectionForm";
 
 type Student = {
   id: number;
-  rollNo: string;
+  rollNo: number;
   absent?: boolean;
 };
+
+interface Section {
+  id: number;
+  section_name: string | null;
+  roll_start: number;
+  roll_end: number;
+}
 
 type SubQuestion = {
   id: number;
@@ -30,11 +39,19 @@ type MainQuestion = {
 
 type MarksMap = Record<string, number | "">; // key = `${rollNo}-${MainLabel}.${SubLabel}`
 
-const initialStudents: Student[] = [{ id: 1, rollNo: "101", absent: false }];
+const initialStudents: Student[] = [{ id: 1, rollNo: 101, absent: false }];
 
 export default function MarksEntry() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
+
+  const [sections, setSections] = useState<Section[]>([]);
+  const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null);
+
+  const [creatingSection, setCreatingSection] = React.useState(false);
+  const [newSectionName, setNewSectionName] = React.useState("");
+  const [newRollStart, setNewRollStart] = React.useState("");
+  const [newRollEnd, setNewRollEnd] = React.useState("");
 
   // exam metadata
   const [exam, setExam] = React.useState<ExamOut | null>(null);
@@ -89,6 +106,22 @@ export default function MarksEntry() {
   }, []);
 
   React.useEffect(() => {
+    async function loadSections() {
+      try {
+        // replace get with your API wrapper
+        const res = await api.get(`/exams/${examId}/sections`);
+        setSections(res.data || []);
+        // if teacher has exactly one section, auto-select it
+        if (res.data && res.data.length === 1)
+          setSelectedSectionId(res.data[0].id);
+      } catch (err) {
+        console.error("Failed to load sections", err);
+      }
+    }
+    loadSections();
+  }, [examId]);
+
+  React.useEffect(() => {
     // load exam details & existing saved marks
     async function loadExam() {
       if (!examId || examId <= 0) return;
@@ -100,12 +133,6 @@ export default function MarksEntry() {
         setSemester(data.exam.semester);
         setExam(data.exam);
 
-        // after setExam(data.exam);
-        console.log("Loaded exam (debug):", data.exam);
-
-        // If backend already has question rows (flat), convert them into mainQuestions if possible.
-        // Backend likely returns questions as a flat array of {id,label,max_marks} where label could be "Q1.A"
-        // We will parse labels of pattern "Qn.X" into MainQuestion structure.
         if (data.questions && data.questions.length > 0) {
           const mqMap = new Map<string, MainQuestion>();
           data.questions.forEach((q) => {
@@ -146,7 +173,7 @@ export default function MarksEntry() {
 
         // students
         if (data.students && data.students.length > 0) {
-          const ss: Student[] = data.students.map((s) => ({
+          const ss: Student[] = data.students.map((s:any) => ({
             id: s.id,
             rollNo: s.roll_no,
             absent: s.absent,
@@ -230,7 +257,7 @@ export default function MarksEntry() {
     for (let r = nFrom; r <= nTo; r++) {
       generated.push({
         id: Date.now() + r,
-        rollNo: String(r),
+        rollNo: Number(r),
         absent: false,
       });
     }
@@ -239,16 +266,35 @@ export default function MarksEntry() {
     setNewRollTo("");
   }
 
-  function handleAddSingleStudent(e: React.FormEvent) {
-    e.preventDefault();
-    if (isAdminView || disabled) return;
-    if (!newStudentRoll.trim()) return;
-    setStudents((prev) => [
-      ...prev,
-      { id: Date.now(), rollNo: newStudentRoll.trim(), absent: false },
-    ]);
-    setNewStudentRoll("");
+function handleAddSingleStudent(e: React.FormEvent) {
+  e.preventDefault();
+  if (isAdminView || disabled) return;
+
+  const raw = newStudentRoll?.trim();
+  if (!raw) return;
+
+  // parse integer (you can use Number(raw) if you want to allow non-integers)
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    alert("Please enter a valid integer roll number.");
+    return;
   }
+
+  // optional: prevent duplicates
+  if (students.some((s) => s.rollNo === parsed)) {
+    alert("This roll number already exists.");
+    return;
+  }
+
+  // append new Student (rollNo is a number)
+  setStudents((prev: Student[]) => [
+    ...prev,
+    { id: Date.now(), rollNo: parsed, absent: false },
+  ]);
+
+  setNewStudentRoll("");
+}
+
 
   function handleAddMainQuestion(e: React.FormEvent) {
     e.preventDefault();
@@ -281,12 +327,12 @@ export default function MarksEntry() {
     );
   }
 
-  function marksKey(rollNo: string, label: string) {
+  function marksKey(rollNo: number, label: string) {
     return `${rollNo}-${label}`; // label like "Q1.A"
   }
 
   function handleSubMarkChange(
-    rollNo: string,
+    rollNo: number,
     mainLabel: string,
     subLabel: string,
     max: number,
@@ -309,7 +355,7 @@ export default function MarksEntry() {
     setMarks((prev) => ({ ...prev, [key]: n }));
   }
 
-  function mainTotalForStudent(rollNo: string, mq: MainQuestion) {
+  function mainTotalForStudent(rollNo: number, mq: MainQuestion) {
     return mq.subQuestions.reduce((acc, sq) => {
       const key = marksKey(rollNo, `${mq.label}.${sq.label}`);
       const v = marks[key];
@@ -317,7 +363,7 @@ export default function MarksEntry() {
     }, 0);
   }
 
-  function grandTotalForStudent(rollNo: string) {
+  function grandTotalForStudent(rollNo: number) {
     return mainQuestions.reduce(
       (acc, mq) => acc + mainTotalForStudent(rollNo, mq),
       0
@@ -415,75 +461,95 @@ export default function MarksEntry() {
   }
 
   async function handleSaveToServer() {
-    if (!examId || examId <= 0) {
-      alert(
-        "This exam is not linked to backend yet. Create it from Teacher Dashboard to save."
-      );
-      return;
-    }
-    if (disabled) {
-      alert(
-        "Your account has been frozen or exam finalized. You cannot save marks."
-      );
-      return;
-    }
+  setError(null);
 
-    // Flatten questions to [{ label: "Q1.A", max_marks: 5 }, ...]
-    const questionsPayload = mainQuestions.flatMap((mq) =>
-      mq.subQuestions.map((sq) => ({
-        label: `${mq.label}.${sq.label}`,
-        max_marks: sq.maxMarks,
-      }))
+  // --- BASIC VALIDATIONS ---
+  if (!selectedSectionId) {
+    alert("Please select a section before saving marks.");
+    return;
+  }
+
+  if (!examId || examId <= 0) {
+    alert("This exam is not linked to backend yet. Create it from Teacher Dashboard to save.");
+    return;
+  }
+
+  if (disabled) {
+    alert("Your account has been frozen or exam finalized. You cannot save marks.");
+    return;
+  }
+
+  // --- FLATTEN QUESTIONS ---
+  const questionsPayload = mainQuestions.flatMap((mq) =>
+    mq.subQuestions.map((sq) => ({
+      label: `${mq.label}.${sq.label}`,
+      max_marks: sq.maxMarks,
+    }))
+  );
+
+  const studentsPayload = students.map((s) => {
+    const marksMap: Record<string, number | null> = {};
+
+    mainQuestions.forEach((mq) =>
+      mq.subQuestions.forEach((sq) => {
+        const label = `${mq.label}.${sq.label}`;
+        const mk = marks[marksKey(s.rollNo, label)];
+        marksMap[label] =
+          mk === "" || mk === null || mk === undefined ? null : Number(mk);
+      })
     );
 
-    // For each student build marks map keyed by "Q1.A"
-    const studentsPayload = students.map((s) => {
-      const marksMap: Record<string, number | null> = {};
-      mainQuestions.forEach((mq) => {
-        mq.subQuestions.forEach((sq) => {
-          const label = `${mq.label}.${sq.label}`;
-          const key = marksKey(s.rollNo, label);
-          const v = marks[key];
-          marksMap[label] = typeof v === "number" ? v : null;
-        });
-      });
-      return {
-        roll_no: s.rollNo,
-        absent: !!s.absent,
-        marks: marksMap,
-      };
-    });
+    return {
+      roll_no: Number(s.rollNo), 
+      absent: !!s.absent,
+      marks: marksMap,
+    };
+  });
 
-    try {
-      await saveExamMarks(examId, {
-        subject_code: subjectCode,
-        subject_name: subjectName,
-        exam_type: examName,
-        semester,
-        academic_year: academicYear,
-        questions: questionsPayload,
-        students: studentsPayload,
-      } as any);
-      alert("Marks saved to server successfully ✅");
-    } catch (err: any) {
-      console.error("Save failed", err);
-      const resp = err?.response?.data;
-      let message = "Failed to save marks";
-      if (resp?.detail && Array.isArray(resp.detail)) {
-        message = resp.detail
+  // --- SEND TO BACKEND ---
+  try {
+    const payload = {
+      section_id: selectedSectionId,
+      subject_code: subjectCode,
+      subject_name: subjectName,
+      exam_type: examName,
+      semester,
+      academic_year: academicYear,
+      questions: questionsPayload,
+      students: studentsPayload,
+    };
+
+    console.log("Payload being sent →", payload);
+
+    await saveExamMarks(examId, payload);
+
+    alert("Marks saved to server successfully!!");
+  } catch (err: any) {
+    console.error("Save failed ↓↓↓", err);
+
+    let message = "Failed to save marks";
+
+    if (err?.response?.data?.detail) {
+      const detail = err.response.data.detail;
+
+      if (Array.isArray(detail)) {
+        message = detail
           .map((d: any) => {
-            const loc = Array.isArray(d.loc) ? d.loc.join(" -> ") : d.loc;
+            const loc = Array.isArray(d.loc) ? d.loc.join(" → ") : d.loc;
             return `${loc}: ${d.msg}`;
           })
-          .join("; ");
-      } else if (resp) {
-        message = JSON.stringify(resp);
-      } else if (err?.message) {
-        message = err.message;
+          .join("\n");
+      } else {
+        message = JSON.stringify(detail);
       }
-      setError(message);
+    } else if (err?.message) {
+      message = err.message;
     }
+
+    setError(message);
   }
+}
+
 
   // UI render
   return (
@@ -634,6 +700,92 @@ export default function MarksEntry() {
           </div>
         </div>
       </div>
+
+      <div className="mb-4 flex items-center gap-3">
+        <label className="text-sm text-slate-300">Section</label>
+
+        <select
+          value={selectedSectionId ?? ""}
+          onChange={(e) => setSelectedSectionId(Number(e.target.value))}
+          className="rounded bg-slate-900 border border-slate-700 px-3 py-1 text-sm"
+        >
+          <option value="">-- Select section --</option>
+          {sections.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.section_name ?? `Section ${s.id}`} ({s.roll_start}-{s.roll_end}
+              )
+            </option>
+          ))}
+        </select>
+
+        <button
+          className="ml-2 text-xs bg-indigo-600 px-2 py-1 rounded text-white"
+          onClick={() => setCreatingSection(true)}
+        >
+          Create Section
+        </button>
+      </div>
+
+      {creatingSection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-slate-900 p-4 rounded max-w-sm w-full">
+            <h3 className="text-white font-semibold">Create section</h3>
+            <div className="mt-2 space-y-2">
+              <input
+                placeholder="Section name (A)"
+                value={newSectionName}
+                onChange={(e) => setNewSectionName(e.target.value)}
+                className="w-full p-2 bg-slate-800 rounded border border-slate-700"
+              />
+              <input
+                placeholder="Roll start (e.g. 101)"
+                value={newRollStart}
+                onChange={(e) => setNewRollStart(e.target.value)}
+                className="w-full p-2 bg-slate-800 rounded border border-slate-700"
+              />
+              <input
+                placeholder="Roll end (e.g. 156)"
+                value={newRollEnd}
+                onChange={(e) => setNewRollEnd(e.target.value)}
+                className="w-full p-2 bg-slate-800 rounded border border-slate-700"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setCreatingSection(false)}
+                  className="px-3 py-1 border rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const payload = {
+                        exam_id: examId,
+                        section_name: newSectionName || null,
+                        roll_start: Number(newRollStart),
+                        roll_end: Number(newRollEnd),
+                      };
+                      const r = await api.post("/exams/sections", payload);
+                      // refresh sections and auto-select the newly created one
+                      setSections((prev) => [...prev, r.data]);
+                      setSelectedSectionId(r.data.id);
+                      setCreatingSection(false);
+                    } catch (err:any) {
+                      alert(
+                        err?.response?.data?.detail ||
+                          "Failed to create section"
+                      );
+                    }
+                  }}
+                  className="px-3 py-1 bg-emerald-600 text-white rounded"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Controls: roll-range / add single student / add main question */}
       <div className="grid gap-4 md:grid-cols-3">
@@ -940,7 +1092,12 @@ export default function MarksEntry() {
             <button
               type="button"
               onClick={handleSaveToServer}
-              disabled={!examId || examId <= 0 || disabled}
+              disabled={
+                !examId ||
+                examId <= 0 ||
+                disabled ||
+                (!isAdminView && !selectedSectionId)
+              }
               className={
                 "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +
                 (examId && examId > 0

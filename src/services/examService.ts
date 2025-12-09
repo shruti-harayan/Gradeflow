@@ -25,7 +25,7 @@ export interface QuestionPayload {
 }
 
 export interface StudentMarksPayload {
-  roll_no: string;
+  roll_no: number;
   absent: boolean;
   marks: Record<string, number | null>;
 }
@@ -47,7 +47,7 @@ export interface QuestionOut {
 
 export interface StudentOut {
   id: number;
-  roll_no: string;
+  roll_no: number;
   name: string;
   absent: boolean;
 }

@@ -13,13 +13,11 @@ from app.api.dependencies import admin_required
 from typing import List
 from app.models.user import PasswordReset
 from datetime import datetime, timedelta, timezone  
+from app.utils.emailer import send_email
+from app.core.config import APP_BASE_URL
+
 
 router = APIRouter()
-
-class GoogleTokenIn(BaseModel):
-    id_token: str | None = None
-    access_token: str | None = None
-
 
 class ForgotPasswordIn(BaseModel):
     email: str
@@ -27,42 +25,58 @@ class ForgotPasswordIn(BaseModel):
 @router.post("/forgot-password")
 def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
-
-    # Email not found → show explicit message (requested by you)
     if not user:
-        raise HTTPException(
-            status_code=400,
-            detail="This email is not registered."
-        )
-
-    # Email exists but is teacher → deny reset
+        raise HTTPException(status_code=400, detail="This email is not registered.")
     if user.role == "teacher":
-        raise HTTPException(
-            status_code=400,
-            detail="This account is registered as teacher so cannot reset password."
-        )
-
-    # Additional safety — only admins allowed
+        raise HTTPException(status_code=400, detail="This account is registered as teacher so cannot reset password.")
     if user.role != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="Not allowed."
-        )
+        raise HTTPException(status_code=403, detail="Not allowed")
 
-    # Valid admin → create token
     token = secrets.token_urlsafe(32)
     expiry = datetime.now(timezone.utc) + timedelta(hours=1)
-
-    row = PasswordReset(
-        user_id=user.id,
-        token=token,
-        expires_at=expiry
-    )
+    row = PasswordReset(user_id=user.id, token=token, expires_at=expiry)
     db.add(row)
     db.commit()
 
-    reset_link = f"http://localhost:5173/reset-password?token={token}"
-    print("SEND RESET LINK:", reset_link)   # replace with email sending later
+    reset_link = f"{APP_BASE_URL.rstrip('/')}/reset-password?token={token}"
+
+    # Plain-text and HTML versions
+    plain = f"""Hello,
+
+    We received a request to reset the password for your GradeFlow admin account.
+
+    Click the link below to reset your password (valid for 1 hour):
+    {reset_link}
+
+    If you did not request this, you can ignore this email.
+
+    Regards,
+    GradeFlow team
+    """
+    html = f"""
+    <html>
+    <body>
+        <p>Hello,</p>
+        <p>We received a request to reset the password for your GradeFlow admin account.</p>
+        <p>
+        <a href="{reset_link}" style="display:inline-block;padding:10px 16px;background:#6d28d9;color:#fff;border-radius:6px;text-decoration:none">
+            Reset password
+        </a>
+        </p>
+        <p style="color:#666;font-size:13px">Or click this link: <a href="{reset_link}">{reset_link}</a></p>
+        <p>If you did not request this, please ignore this message.</p>
+        <p>Regards,<br/>GradeFlow</p>
+    </body>
+    </html>
+    """
+
+    try:
+        send_email(user.email, "GradeFlow — Password reset instructions", plain, html)
+    except Exception as e:
+        print("Failed to send email:", e)
+        db.delete(row)
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to send reset email. Please try again later.")
 
     return {"detail": "Password reset instructions have been sent to your email."}
 
@@ -271,6 +285,10 @@ def admin_create_teacher(
     db.refresh(user)
 
     return {"id": user.id, "email": user.email, "role": user.role,"detail": "Account created successfully"}
+
+class GoogleTokenIn(BaseModel):
+    id_token: str | None = None
+    access_token: str | None = None
 
 @router.post("/google")
 def google_login(payload: GoogleTokenIn, db: Session = Depends(get_db)):

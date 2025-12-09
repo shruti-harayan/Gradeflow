@@ -1,9 +1,9 @@
 # backend/app/models/exam.py
+from datetime import datetime
 from sqlalchemy import Column, Float, Integer, String, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
-
 
 class Exam(Base):
     __tablename__ = "exams"
@@ -30,6 +30,8 @@ class Exam(Base):
     marks = relationship(
         "Mark", back_populates="exam", cascade="all, delete-orphan"
     )
+    sections = relationship(
+        "ExamSection", back_populates="exam", cascade="all, delete-orphan")
 
 
 class Question(Base):
@@ -38,7 +40,7 @@ class Question(Base):
     id = Column(Integer, primary_key=True, index=True)
     exam_id = Column(Integer, ForeignKey("exams.id", ondelete="CASCADE"))
     label = Column(String, nullable=False)       # "Q1", "Q2" etc
-    max_marks = Column(Integer, nullable=False)
+    max_marks = Column(Integer, nullable=False)  # change to Float if needed
     order = Column(Integer, default=0)
 
     exam = relationship("Exam", back_populates="questions")
@@ -52,8 +54,7 @@ class Student(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     exam_id = Column(Integer, ForeignKey("exams.id", ondelete="CASCADE"))
-    roll_no = Column(String, nullable=False)
-   
+    roll_no = Column(Integer, nullable=False)   
     absent = Column(Boolean, default=False)
 
     exam = relationship("Exam", back_populates="students")
@@ -70,7 +71,24 @@ class Mark(Base):
     student_id = Column(Integer, ForeignKey("students.id", ondelete="CASCADE"))
     question_id = Column(Integer, ForeignKey("questions.id", ondelete="CASCADE"))
     marks = Column(Float, nullable=True)  # None if absent or not entered
+    section_id = Column(Integer, ForeignKey("exam_sections.id"), nullable=True)
 
     exam = relationship("Exam", back_populates="marks")
     student = relationship("Student", back_populates="marks")
     question = relationship("Question", back_populates="marks")
+    
+
+class ExamSection(Base):
+    __tablename__ = "exam_sections"
+    id = Column(Integer, primary_key=True, index=True)
+    exam_id = Column(Integer, ForeignKey("exams.id", ondelete="CASCADE"))
+    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    section_name = Column(String, nullable=True)
+    roll_start = Column(Integer, nullable=False)
+    roll_end = Column(Integer, nullable=False)
+    is_locked = Column(Boolean, default=False)
+    locked_by = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # timezone-aware
+
+    exam = relationship("Exam", back_populates="sections")
+    teacher = relationship("User")
