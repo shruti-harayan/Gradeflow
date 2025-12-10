@@ -117,21 +117,20 @@ export async function downloadExamCsv(examId: number, filename?: string) {
     responseType: "blob",
   });
 
-  // If filename not provided, try to use server-provided filename from headers
+  // Try to use filename from backend
   let finalName = filename;
-  const cd = res.headers?.["content-disposition"] as string | undefined;
+  const cd = res.headers?.["content-disposition"];
   if (!finalName && cd) {
     const match = cd.match(/filename="?(.+?)"?($|;)/);
     if (match) finalName = match[1];
   }
-  // Fallback name when nothing else
-  if (!finalName) finalName = `exam_${examId}_marks.csv`;
+  if (!finalName) finalName = `exam_${examId}.csv`;
 
   const blob = new Blob([res.data], { type: "text/csv" });
-  const url = window.URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = finalName;
   link.click();
-  window.URL.revokeObjectURL(url);
+  URL.revokeObjectURL(url);
 }

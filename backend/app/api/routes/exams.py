@@ -6,9 +6,7 @@ from app.models.exam import Exam, Question, Student, Mark
 from sqlalchemy.orm import Session
 from app.database import get_db,engine
 from fastapi.responses import StreamingResponse
-import csv
-from io import StringIO
-from app import models
+import csv,io
 from typing import List,Optional
 from app.api.dependencies import admin_required,get_current_user
 from app.core.security import get_current_user
@@ -138,7 +136,23 @@ def create_exam(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    Exam = models.exam.Exam  
+    # normalize fields for matching: subject_code/exam_type/academic_year as-is; subject_name case-insensitive
+    existing = (
+        db.query(Exam)
+        .filter(
+            Exam.subject_code == exam_in.subject_code,
+            Exam.exam_type == exam_in.exam_type,
+            Exam.semester == exam_in.semester,
+            Exam.academic_year == exam_in.academic_year,
+            Exam.subject_name.ilike(exam_in.subject_name),
+        )
+        .first()
+    )
+
+    if existing:
+        # Optionally: if the existing exam has no creator (shouldn't happen normally) set created_by
+        # but we do NOT overwrite existing.created_by to avoid changing ownership.
+        return existing
 
     exam = Exam(
         subject_code=exam_in.subject_code,
@@ -153,6 +167,8 @@ def create_exam(
     db.refresh(exam)
     return exam
 
+
+
 logger = logging.getLogger("uvicorn.error")
 
 @router.post("/{exam_id}/marks")
@@ -162,14 +178,7 @@ def save_marks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Save marks for an exam.
-
-    Behavior (auto-create mode):
-      - If there are no Question rows for the exam, create questions from payload.questions.
-      - If some questions exist, create any missing labels found in payload.questions.
-      - Then save students and marks (storing section_id on each mark if provided).
-    """
+    
     logger.info("save_marks called for exam_id=%s by user=%s", exam_id, getattr(current_user, "id", None))
     try:
         logger.info("DB engine url: %s", str(engine.url))
@@ -366,140 +375,125 @@ def get_exam_marks(exam_id: int, db: Session = Depends(get_db)):
         "marks": marks_out,
     }
 
+
+
 @router.get("/{exam_id}/export")
-def export_exam_csv(exam_id: int, db: Session = Depends(get_db)):
+def export_exam_csv(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
-    Export a single CSV for an exam that merges all sections (batches).
-    For each section we print a small header block with:
-      - Section label (or id)
-      - Teacher name / email
-      - Academic year (from exam)
-    Then we write the question header row and the student rows for that section.
+    Export merged CSV with:
+     - Top header block (academic year, subject, semester, exam type)
+     - Single merged table:
+         Roll No, Section, [Q1.A, Q1.B, ..., Total_Q1], [Q2.A, Q2.B, ..., Total_Q2], Grand_Total
     """
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    # Fetch questions once (column layout)
-    questions = db.query(Question).filter(Question.exam_id == exam_id).order_by(Question.order.asc()).all()
-    question_headers = [q.label for q in questions]
+    # fetch questions (flattened labels like "Q1.A")
+    questions = db.query(Question).filter(Question.exam_id == exam_id).order_by(Question.id.asc()).all()
+    q_labels = [q.label for q in questions]  # preserves DB order
 
-    # Fetch all sections for the exam (admin may call this)
-    sections = db.query(ExamSection).filter(ExamSection.exam_id == exam_id).order_by(ExamSection.id.asc()).all()
+    # Group sub-questions by main label prefix (prefix before first dot)
+    main_order: list[str] = []
+    subs_by_main: dict[str, list[str]] = {}
+    for lbl in q_labels:
+        if "." in lbl:
+            main, sub = lbl.split(".", 1)
+        else:
+            main, sub = lbl, ""
+        if main not in subs_by_main:
+            subs_by_main[main] = []
+            main_order.append(main)
+        subs_by_main[main].append(lbl)
 
-    # If there are no explicit sections, fall back to default behaviour:
-    # treat whole exam as a single unnamed section spanning all students.
-    if not sections:
-        # gather all students and marks as before (single block)
-        students = db.query(Student).filter(Student.exam_id == exam_id).order_by(Student.roll_no.asc()).all()
-        marks = db.query(Mark).filter(Mark.exam_id == exam_id).all()
-        mark_map = {(m.student_id, m.question_id): m.marks for m in marks}
+    # fetch students and marks
+    students = db.query(Student).filter(Student.exam_id == exam_id).order_by(Student.roll_no.asc()).all()
+    marks = db.query(Mark).filter(Mark.exam_id == exam_id).all()
+    # mark lookup (student_id, question_label) -> value
+    # to map label to question id:
+    q_by_label = {q.label: q for q in questions}
+    marks_map = {}
+    for m in marks:
+        q = m.question_id
+        # we need label for question_id:
+        # build mapping id->label quickly
+        # (we already have q_by_label mapping label->Question; build reverse)
+        # build reverse map once:
+        pass
 
-        output = StringIO()
-        writer = csv.writer(output)
+    # build reverse map id -> label
+    id_to_label = {q.id: q.label for q in questions}
+    for m in marks:
+        lbl = id_to_label.get(m.question_id)
+        if lbl:
+            marks_map[(m.student_id, lbl)] = m.marks
 
-        # top-level info row
-        writer.writerow([f"{exam.subject_code} — {exam.subject_name}"])
-        writer.writerow([f"Academic Year: {exam.academic_year}" if exam.academic_year else ""])
-        writer.writerow([])
+    # build student -> section mapping (if section_id present on marks)
+    sections = db.query(ExamSection).filter(ExamSection.exam_id == exam_id).all()
+    section_name_by_id = {sec.id: sec.section_name or "" for sec in sections}
+    student_section: dict[int, str] = {}
+    # prefer section_id saved in marks (if present) otherwise empty string
+    for m in marks:
+        if m.section_id:
+            student_section[m.student_id] = section_name_by_id.get(m.section_id, "")
 
-        # Header
-        writer.writerow(["Roll No", "Absent"] + question_headers + ["Total"])
+    # prepare CSV
+    out = io.StringIO()
+    writer = csv.writer(out)
 
-        # Data rows
-        for s in students:
-            row = [s.roll_no, "AB" if s.absent else ""]
-            total = 0.0
-            for q in questions:
-                mk = mark_map.get((s.id, q.id))
-                if mk is None:
-                    row.append("")
-                else:
-                    row.append(mk)
-                    try:
-                        total += float(mk)
-                    except Exception:
-                        pass
-            row.append(total)
-            writer.writerow(row)
-
-        output.seek(0)
-        safe = lambda s: str(s).replace(" ", "_").replace("/", "-")
-        filename = f"{safe(exam.subject_code)}_{safe(exam.exam_type)}_Sem{exam.semester}_{safe(exam.academic_year or '')}.csv"
-        return StreamingResponse(
-            output,
-            media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
-
-    # If we have multiple sections, build CSV with per-section blocks
-    output = StringIO()
-    writer = csv.writer(output)
-
-    # Top-level title row for the whole CSV
-    writer.writerow([f"{exam.subject_code} — {exam.subject_name}"])
+    # header block
+    writer.writerow([f"Academic Year: {exam.academic_year or ''}"])
+    writer.writerow([f"Subject: {exam.subject_name} ({exam.subject_code})"])
+    writer.writerow([f"Semester: {exam.semester}"])
+    writer.writerow([f"Exam Type: {exam.exam_type}"])
     writer.writerow([])
 
-    # For each section, print small header info then the table
-    for sec in sections:
-        # teacher info
-        teacher = db.query(User).filter(User.id == sec.teacher_id).first()
-        teacher_name = (teacher.name or teacher.email) if teacher else f"teacher_id:{sec.teacher_id}"
+    # build header row:
+    header = ["Roll No", "Section"]
+    # for each main question add its subs then a Total column
+    for main in main_order:
+        subs = subs_by_main.get(main, [])
+        for sub_lbl in subs:
+            header.append(sub_lbl)
+        header.append(f"Total_{main}")  # e.g. Total_Q1
+    header.append("Grand_Total")
+    writer.writerow(header)
 
-        section_label = sec.section_name or f"Section {sec.id}"
+    # data rows
+    for s in students:
+        row = [s.roll_no, student_section.get(s.id, "")]
+        grand_total = 0.0
 
-        # Section header block (3 rows: section label, teacher, academic year)
-        writer.writerow([f"{section_label}"])
-        writer.writerow([f"Teacher: {teacher_name}"])
-        if exam.academic_year:
-            writer.writerow([f"Academic Year: {exam.academic_year}"])
-        else:
-            writer.writerow(["Academic Year: "])
-        writer.writerow([])  # small spacer
-
-        # Write column header for this section
-        writer.writerow(["Roll No", "Absent"] + question_headers + ["Total"])
-
-        # Get students for this section by roll range (inclusive)
-        students = db.query(Student).filter(
-            Student.exam_id == exam_id,
-            Student.roll_no >= sec.roll_start,
-            Student.roll_no <= sec.roll_end
-        ).order_by(Student.roll_no.asc()).all()
-
-        # Fetch marks for this exam and restrict by student ids in this section
-        # (build mark map once for speed)
-        marks = db.query(Mark).filter(Mark.exam_id == exam_id).all()
-        mark_map = {(m.student_id, m.question_id): m.marks for m in marks}
-
-        # Write student rows for this section
-        for s in students:
-            row = [s.roll_no, "AB" if s.absent else ""]
-            total = 0.0
-            for q in questions:
-                mk = mark_map.get((s.id, q.id))
-                if mk is None:
-                    row.append("")
+        for main in main_order:
+            subs = subs_by_main.get(main, [])
+            main_total = 0.0
+            for lbl in subs:
+                val = marks_map.get((s.id, lbl))
+                if val is None:
+                    row.append("")  # blank if no mark
                 else:
-                    row.append(mk)
+                    # ensure numeric format preserved (floats allowed)
+                    row.append(val)
                     try:
-                        total += float(mk)
+                        main_total += float(val)
                     except Exception:
                         pass
-            # append total (as a number)
-            row.append(total)
-            writer.writerow(row)
+            # after subquestions append main total
+            # format to 2 decimals? leave as number to keep decimals (frontend shows)
+            row.append(round(main_total, 2) if main_total % 1 else int(main_total))
+            grand_total += main_total
 
-        # Spacer row between sections
-        writer.writerow([])
+        # final grand total
+        row.append(round(grand_total, 2) if grand_total % 1 else int(grand_total))
 
-    # finalize
-    output.seek(0)
-    safe = lambda s: str(s).replace(" ", "_").replace("/", "-")
-    filename = f"{safe(exam.subject_code)}_{safe(exam.exam_type)}_Sem{exam.semester}_{safe(exam.academic_year or '')}_merged.csv"
+        writer.writerow(row)
 
-    return StreamingResponse(
-        output,
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
+    out.seek(0)
+    safe_name = f"{(exam.subject_name or 'exam').replace(' ', '_')}_{exam.exam_type}_Sem{exam.semester}_{exam.academic_year or ''}.csv"
+    response = StreamingResponse(iter([out.getvalue().encode("utf-8")]), media_type="text/csv")
+    response.headers["Content-Disposition"] = f'attachment; filename="{safe_name}"'
+    return response

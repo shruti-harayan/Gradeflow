@@ -7,10 +7,11 @@ import {
   getExamMarks,
   type ExamMarksOut,
   type ExamOut,
+  downloadExamCsv,
 } from "../services/examService";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
-//import CreateSectionForm, { type Section } from "../pages/CreateSectionForm";
+
 
 type Student = {
   id: number;
@@ -53,6 +54,7 @@ export default function MarksEntry() {
   const [newRollStart, setNewRollStart] = React.useState("");
   const [newRollEnd, setNewRollEnd] = React.useState("");
 
+    
   // exam metadata
   const [exam, setExam] = React.useState<ExamOut | null>(null);
   const examIdParam = searchParams.get("examId");
@@ -72,11 +74,9 @@ export default function MarksEntry() {
   const [semester, setSemester] = React.useState<number>(
     isNaN(initialSem) ? 1 : initialSem
   );
-  // Academic Year (e.g., 2025-2026)
+
   const [academicYear, setAcademicYear] = React.useState("2025-2026");
-
   const [mainQuestions, setMainQuestions] = React.useState<MainQuestion[]>([]);
-
   const [students, setStudents] = React.useState<Student[]>(initialStudents);
   const [marks, setMarks] = React.useState<MarksMap>({});
   const [error, setError] = React.useState<string | null>(null);
@@ -85,7 +85,7 @@ export default function MarksEntry() {
   const [newMainQLabel, setNewMainQLabel] = React.useState("");
   const [newMainQSubCount, setNewMainQSubCount] = React.useState<number>(1);
   const [defaultMaxSubMarks, setDefaultMaxSubMarks] =
-    React.useState<number>(10);
+    React.useState<number>(2);
 
   // single-add student fields (kept for small additions)
   const [newStudentRoll, setNewStudentRoll] = React.useState("");
@@ -120,6 +120,43 @@ export default function MarksEntry() {
     }
     loadSections();
   }, [examId]);
+
+  // --- new helper: generate students array from numeric range (inclusive) ---
+  function generateStudentsFromRange(start: number, end: number): Student[] {
+    const arr: Student[] = [];
+    for (let r = start; r <= end; r++) {
+      arr.push({ id: Date.now() + r, rollNo: r, absent: false });
+    }
+    return arr;
+  }
+
+  // Section select handler: selects and generates rows for that section's range
+  function handleSectionSelect(e: React.ChangeEvent<HTMLSelectElement>) {
+    const val = e.target.value;
+    if (!val) {
+      setSelectedSectionId(null);
+      setStudents([]);
+      return;
+    }
+    const secId = Number(val);
+    const sec = sections.find((s) => s.id === secId);
+    setSelectedSectionId(secId);
+
+    if (sec) {
+      // generate students from section roll range
+      const start = Number(sec.roll_start ?? sec.roll_start ?? 0);
+      const end = Number(sec.roll_end ?? sec.roll_end ?? 0);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+        // invalid section ranges — do nothing
+        setStudents([]);
+        return;
+      }
+      const generated = generateStudentsFromRange(start, end);
+      setStudents(generated);
+    } else {
+      setStudents([]);
+    }
+  }
 
   React.useEffect(() => {
     // load exam details & existing saved marks
@@ -296,10 +333,20 @@ function handleAddSingleStudent(e: React.FormEvent) {
 }
 
 
+  // --- Main question add: prevent duplicate main labels ---
   function handleAddMainQuestion(e: React.FormEvent) {
     e.preventDefault();
     if (isAdminView || disabled) return;
     if (!newMainQLabel.trim()) return;
+
+    const label = newMainQLabel.trim().toUpperCase();
+
+    // Prevent duplicate main question labels
+    if (mainQuestions.some((mq) => mq.label === label)) {
+      alert(`Main question ${label} already exists. Please choose a different label.`);
+      return;
+    }
+
     const numSubs = Math.max(1, Math.min(10, newMainQSubCount));
     const subQs: SubQuestion[] = [];
     for (let i = 0; i < numSubs; i++) {
@@ -312,13 +359,75 @@ function handleAddSingleStudent(e: React.FormEvent) {
     }
     const newMainQ: MainQuestion = {
       id: Date.now(),
-      label: newMainQLabel.trim().toUpperCase(),
+      label,
       subQuestions: subQs,
     };
     setMainQuestions((prev) => [...prev, newMainQ]);
     setNewMainQLabel("");
     setNewMainQSubCount(1);
   }
+
+
+function addSubQuestionToMain(mainLabel: string) {
+  if (isAdminView || disabled) return;
+  setMainQuestions((prev) =>
+    prev.map((mq) => {
+      if (mq.label !== mainLabel) return mq;
+      const subs = mq.subQuestions || [];
+
+      // determine next candidate letter
+      let nextChar = "A";
+      if (subs.length > 0) {
+        // find highest letter used
+        const letters = subs.map((s) => s.label).filter(Boolean);
+        const codes = letters
+          .map((l) => l.charCodeAt(0))
+          .filter((c) => Number.isFinite(c));
+        const maxCode = codes.length ? Math.max(...codes) : 64; // 64 so +1 => 'A'
+        nextChar = String.fromCharCode(maxCode + 1);
+      }
+
+      // ensure unique label (defensive)
+      let attempt = nextChar;
+      let i = 0;
+      while (subs.some((s) => s.label === attempt) && i < 26) {
+        attempt = String.fromCharCode(attempt.charCodeAt(0) + 1);
+        i++;
+      }
+      if (attempt.charCodeAt(0) > 90) {
+        alert("Cannot add more sub-questions (limit reached).");
+        return mq;
+      }
+
+      let proposedMax = 1;
+      if (subs.length > 0) {
+        const last = subs[subs.length - 1];
+        if (last && Number.isFinite(last.maxMarks) && last.maxMarks > 0) {
+          proposedMax = last.maxMarks;
+        } else if (Number.isFinite(defaultMaxSubMarks) && defaultMaxSubMarks > 0) {
+          proposedMax = defaultMaxSubMarks;
+        }
+      } else {
+        // no existing subs — use default but ensure >=1
+        proposedMax = Number.isFinite(defaultMaxSubMarks) && defaultMaxSubMarks > 0 ? defaultMaxSubMarks : 1;
+      }
+
+      // final sanity: ensure an integer >= 1
+      proposedMax = Math.max(1, Math.round(proposedMax));
+
+      const newSub: SubQuestion = {
+        id: Date.now() + Math.random() * 10000,
+        label: attempt,
+        maxMarks: proposedMax,
+      };
+
+      return {
+        ...mq,
+        subQuestions: [...subs, newSub],
+      };
+    })
+  );
+}
 
   function handleToggleAbsent(studentId: number) {
     if (disabled) return;
@@ -411,54 +520,21 @@ function handleAddSingleStudent(e: React.FormEvent) {
     }
   }
 
-  function handleExportCSV() {
-    // header: RollNo, then each sub-question label (Q1.A...), then per-main totals, then grand total
-    const subLabels: string[] = [];
-    mainQuestions.forEach((mq) => {
-      mq.subQuestions.forEach((sq) =>
-        subLabels.push(`${mq.label}.${sq.label}`)
-      );
-    });
-    const mainTotalsLabels = mainQuestions.map((mq) => `${mq.label}.Total`);
-
-    const header = [
-      "Academic Year",
-      "Roll No",
-      ...subLabels,
-      ...mainTotalsLabels,
-      "Grand Total",
-    ];
-    const rows = students.map((s) => {
-      if (s.absent) {
-        const empties = subLabels.map(() => "");
-        const mainTotals = mainTotalsLabels.map(() => "");
-        return [s.rollNo, ...empties, ...mainTotals, "AB"];
-      } else {
-        const subVals = subLabels.map((lab) => {
-          const v = marksKey(s.rollNo, lab);
-          const val = marks[v];
-          return typeof val === "number" ? String(val) : "";
-        });
-        const mainTotals = mainQuestions.map((mq) =>
-          String(mainTotalForStudent(s.rollNo, mq))
-        );
-        const g = String(grandTotalForStudent(s.rollNo));
-        return [academicYear, s.rollNo, ...subVals, ...mainTotals, g];
-      }
-    });
-
-    const csvContent = [header, ...rows].map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const safeSubject = subjectCode || "Subject";
-    const safeExam = examName || "Exam";
-    const safeSem = `Sem${semester}`;
-    a.href = url;
-    a.download = `${safeSubject}_${safeExam}_${safeSem}_marks.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function handleExportCSV() {
+  if (!examId) {
+    alert("Exam not created yet.");
+    return;
   }
+  const safe = (s: string) => s.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\.]/g, "");
+  const filename = `${safe(subjectName)}_${safe(examName)}_Sem${semester}_${academicYear}.csv`;
+  try {
+    await downloadExamCsv(examId, filename);
+  } catch (err) {
+    console.error("CSV export failed", err);
+    alert("Failed to export CSV");
+  }
+}
+
 
   async function handleSaveToServer() {
   setError(null);
@@ -580,8 +656,7 @@ function handleAddSingleStudent(e: React.FormEvent) {
           </div>
         )}
 
-        {/* Show appropriate locked message only to the teacher-owner or when admin locked */}
-        {/* 🔒 Teacher-only lock messages (NEVER show for admin) */}
+        {/* Show appropriate locked message only to the teacher-owner or when admin locked */}        {/* 🔒 Teacher-only lock messages (NEVER show for admin) */}
         {isFinalized && user?.role === "teacher" && !isAdminView && (
           <div className="mb-4">
             {(() => {
@@ -706,7 +781,7 @@ function handleAddSingleStudent(e: React.FormEvent) {
 
         <select
           value={selectedSectionId ?? ""}
-          onChange={(e) => setSelectedSectionId(Number(e.target.value))}
+          onChange={handleSectionSelect}
           className="rounded bg-slate-900 border border-slate-700 px-3 py-1 text-sm"
         >
           <option value="">-- Select section --</option>
@@ -769,6 +844,20 @@ function handleAddSingleStudent(e: React.FormEvent) {
                       // refresh sections and auto-select the newly created one
                       setSections((prev) => [...prev, r.data]);
                       setSelectedSectionId(r.data.id);
+
+                      // auto-generate rows for the newly created section
+                      try {
+                        const rs = Number(r.data.roll_start ?? r.data.rollStart ?? 0);
+                        const re = Number(r.data.roll_end ?? r.data.rollEnd ?? 0);
+                        if (Number.isFinite(rs) && Number.isFinite(re) && rs <= re) {
+                          const generated = generateStudentsFromRange(rs, re);
+                          setStudents(generated);
+                        }
+                      } catch (ex) {
+                        // ignore generation errors
+                        console.warn("Failed to auto-generate students for new section", ex);
+                      }
+
                       setCreatingSection(false);
                     } catch (err:any) {
                       alert(
@@ -952,17 +1041,37 @@ function handleAddSingleStudent(e: React.FormEvent) {
 
               {/* Flattened sub-question columns */}
               {mainQuestions.flatMap((mq) =>
-                mq.subQuestions.map((sq) => (
-                  <th
-                    key={`${mq.label}.${sq.label}`}
-                    className="px-2 py-2 text-center font-medium"
-                  >
-                    {mq.label}.{sq.label}
-                    <div className="text-[10px] text-slate-500">
-                      /{sq.maxMarks}
-                    </div>
-                  </th>
-                ))
+                mq.subQuestions.map((sq, idx) => {
+                  const isLast = idx === mq.subQuestions.length - 1;
+                  return (
+                    <th
+                      key={`${mq.label}.${sq.label}`}
+                      className="px-2 py-2 text-center font-medium"
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <div>
+                          {mq.label}.{sq.label}
+                          <div className="text-[10px] text-slate-500">
+                            /{sq.maxMarks}
+                          </div>
+                        </div>
+                        {/* + button only for the last sub-question of the main question */}
+                        {isLast && !isAdminView && !disabled && (
+                          <button
+                            type="button"
+                            onClick={() => addSubQuestionToMain(mq.label)}
+                            className="ml-1 rounded px-1 py-0.5 bg-slate-800 text-slate-200 text-xs"
+                            title={`Add ${mq.label}.${String.fromCharCode(
+                              sq.label.charCodeAt(0) + 1
+                            )}`}
+                          >
+                            +
+                          </button>
+                        )}
+                      </div>
+                    </th>
+                  );
+                })
               )}
 
               {/* main totals */}

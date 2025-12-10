@@ -1,7 +1,7 @@
 // src/pages/Dashboard.tsx
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { createExam, getExams, type ExamType } from "../services/examService";
+import { createExam, downloadExamCsv, getExams, type ExamType } from "../services/examService";
 
 type SubjectCard = {
   id: number; // UI id
@@ -33,7 +33,7 @@ export default function Dashboard() {
     async function load() {
       try {
         const exams = await getExams();
-        const mapped: SubjectCard[] = exams.map((exam) => ({
+        const mapped: SubjectCard[] = exams.map((exam:any) => ({
           id: exam.id,
           examId: exam.id,
           code: exam.subject_code,
@@ -119,11 +119,38 @@ export default function Dashboard() {
     );
   }
 
-  function handleExport(subject: SubjectCard) {
-    alert(
-      `Export for ${subject.code} - ${subject.name} (Sem ${subject.semester}, ${subject.examType}) will be implemented with backend.`
-    );
+
+async function handleExport(subject: SubjectCard) {
+  // determine exam id (try multiple common property names)
+  const examId = (subject as any).id ?? (subject as any).examId ?? (subject as any).exam_id;
+  if (!examId) {
+    alert("Cannot determine exam id for this subject. Please open the marks page to export.");
+    return;
   }
+
+  const safe = (s?: string | number | null) =>
+    String(s ?? "")
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9_\-\.]/g, "");
+
+  const subjCode = (subject as any).code ?? (subject as any).subject_code ?? "";
+  const subjName = (subject as any).name ?? (subject as any).subject_name ?? "";
+  const examType = (subject as any).examType ?? (subject as any).exam_type ?? "";
+  const semester = (subject as any).semester ?? "";
+  const academicYear =
+    (subject as any).academicYear ?? (subject as any).academic_year ?? "";
+
+  const filename = `${safe(subjCode)}_${safe(subjName)}_${safe(examType)}_Sem${safe(
+    semester
+  )}${academicYear ? "_" + safe(academicYear) : ""}.csv`;
+
+  try {
+    await downloadExamCsv(examId, filename);
+  } catch (err) {
+    console.error("Export failed", err);
+    alert("Failed to download CSV. See console for details.");
+  }
+}
 
   function handleDelete(id: number) {
     const ok = window.confirm(
