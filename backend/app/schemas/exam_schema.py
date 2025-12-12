@@ -1,6 +1,6 @@
 # backend/app/schemas/exam_schema.py
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional,Any
 from pydantic import BaseModel, Field
 
 class ExamBase(BaseModel):
@@ -9,8 +9,7 @@ class ExamBase(BaseModel):
     exam_type: str = Field(..., description="Internal, External, Practical, ATKT, Other")
     semester: int
     academic_year: str
-
-
+   
 class ExamCreate(ExamBase):
     pass
 
@@ -21,6 +20,7 @@ class ExamOut(ExamBase):
     is_locked: bool = False
     locked_by: Optional[int] = None
     created_by: Optional[int]=None
+    question_rules: Optional[Dict[str, Any]] = None
 
     class Config:
        orm_mode = True
@@ -47,7 +47,7 @@ class MarksSaveRequest(BaseModel):
     semester: int
     questions: List[QuestionIn]
     students: List[StudentMarksIn]
-
+    question_rules: Optional[Dict[str, Any]] = None
 
 class QuestionOut(BaseModel):
     id: int
@@ -99,3 +99,7 @@ class ExamSectionOut(BaseModel):
     class Config:
         orm_mode = True
 
+class ExamUpdate(BaseModel):
+    subject_code: Optional[str]
+    subject_name: Optional[str]
+    question_rules: Optional[Dict[str, Any]] = None

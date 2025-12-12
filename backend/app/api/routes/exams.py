@@ -1,13 +1,13 @@
 # backend/app/api/routes/exams.py
-import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.schemas.exam_schema import ExamCreate, ExamOut, MarksSaveRequest,ExamMarksOut
-from app.models.exam import Exam, Question, Student, Mark
+from app.schemas.exam_schema import ExamCreate, ExamOut, ExamUpdate, MarksSaveRequest,ExamMarksOut
+from app.models.exam import Exam, Question, Student, Mark,ExamSection             
 from sqlalchemy.orm import Session
 from app.database import get_db,engine
 from fastapi.responses import StreamingResponse
-import csv,io
-from typing import List,Optional
+import csv,io,json,logging
+from sqlalchemy.exc import StatementError
+from typing import Any, List,Optional
 from app.api.dependencies import admin_required,get_current_user
 from app.core.security import get_current_user
 from app.models.user import User
@@ -19,15 +19,13 @@ router = APIRouter()
 
 @router.post("/sections", response_model=ExamSectionOut)
 def create_section(payload: ExamSectionCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    # only teachers (and admins optionally) can create sections
+   
     if current_user.role not in ("teacher", "admin"):
         raise HTTPException(status_code=403, detail="Insufficient privileges")
 
     exam = db.query(Exam).filter(Exam.id == payload.exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
-
-    # Optional: allow only teachers to create sections for subjects they teach; for now allow teacher to create their own section
     # Validate roll range
     if payload.roll_start > payload.roll_end:
         raise HTTPException(status_code=400, detail="roll_start must be <= roll_end")
@@ -178,72 +176,73 @@ def save_marks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    
-    logger.info("save_marks called for exam_id=%s by user=%s", exam_id, getattr(current_user, "id", None))
-    try:
-        logger.info("DB engine url: %s", str(engine.url))
-    except Exception as e:
-        logger.info("Could not read engine.url: %s", e)
+    """
+    Save marks for an exam. section_id is optional; when absent, marks are saved with section_id = NULL.
+    Also persists question_rules if provided in payload.
+    """
 
+    logger.info("save_marks called for exam_id=%s by user=%s", exam_id, getattr(current_user, "id", None))
+
+    # basic exam existence check
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    # sections logic
-    sections = db.query(ExamSection).filter(ExamSection.exam_id == exam_id).all()
-    exam_has_sections = len(sections) > 0
+    # --- SECTION HANDLING (optional) ---
     section = None
-    if exam_has_sections:
-        if payload.section_id is None:
-            raise HTTPException(status_code=422, detail="section_id is required for this exam")
-        section = db.query(ExamSection).filter(
-            ExamSection.id == payload.section_id,
-            ExamSection.exam_id == exam_id
-        ).first()
+    if payload.section_id is not None:
+        # Validate provided section_id
+        section = (
+            db.query(ExamSection)
+            .filter(ExamSection.id == payload.section_id, ExamSection.exam_id == exam_id)
+            .first()
+        )
         if not section:
             raise HTTPException(status_code=422, detail="Invalid section_id")
-        if current_user.role == "teacher" and section.teacher_id != current_user.id:
+        # permission: teacher may only write for their section
+        if getattr(current_user, "role", None) == "teacher" and section.teacher_id != getattr(current_user, "id", None):
             raise HTTPException(status_code=403, detail="Not allowed to save marks for this section")
 
+    # --- Build list of question labels from payload (safe access) ---
+    payload_q_labels = []
+    for q in (payload.questions or []):
+        lbl = getattr(q, "label", None)
+        if lbl:
+            payload_q_labels.append(lbl)
 
-# Build list of labels coming from payload.questions (QuestionIn Pydantic models)
-    payload_q_labels = [q.label for q in (payload.questions or []) if getattr(q, "label", None)]
-
-    # Fetch existing questions from DB for this exam
-    q_objs = db.query(Question).filter(Question.exam_id == exam_id).all()
+    # --- Fetch existing questions and create missing ones (auto-create behavior) ---
+    q_objs = db.query(Question).filter(Question.exam_id == exam_id).order_by(Question.id.asc()).all()
     existing_labels = {q.label for q in q_objs}
 
     created_questions = 0
-
     if not q_objs and payload_q_labels:
-        # No questions exist — create all from payload (QuestionIn objects)
-        logger.info("No questions found for exam %s — creating %s questions from payload", exam_id, len(payload_q_labels))
+        # no questions at all — create all from payload
+        logger.info("No existing questions; creating %s from payload for exam %s", len(payload_q_labels), exam_id)
         for q_in in (payload.questions or []):
-            label = getattr(q_in, "label", None)
-            if not label:
+            lbl = getattr(q_in, "label", None)
+            if not lbl:
                 continue
             try:
-                mm = int(getattr(q_in, "max_marks", 0))
+                mm = float(getattr(q_in, "max_marks", 0) or 0)
             except Exception:
-                mm = 0
-            new_q = Question(exam_id=exam_id, label=label, max_marks=mm)
+                mm = 0.0
+            new_q = Question(exam_id=exam_id, label=lbl, max_marks=mm)
             db.add(new_q)
             created_questions += 1
         db.flush()
-        # refresh list after creation
         q_objs = db.query(Question).filter(Question.exam_id == exam_id).all()
         existing_labels = {q.label for q in q_objs}
     else:
-        # Some exist — create any missing labels found in payload (merge)
+        # create any missing labels from payload
         missing = [lab for lab in payload_q_labels if lab not in existing_labels]
         if missing:
             logger.info("Creating %s missing question(s) for exam %s: %s", len(missing), exam_id, missing)
             for lab in missing:
                 found = next((q for q in (payload.questions or []) if getattr(q, "label", None) == lab), None)
                 try:
-                    mm = int(getattr(found, "max_marks", 0)) if found else 0
+                    mm = float(getattr(found, "max_marks", 0) or 0) if found else 0.0
                 except Exception:
-                    mm = 0
+                    mm = 0.0
                 nq = Question(exam_id=exam_id, label=lab, max_marks=mm)
                 db.add(nq)
                 created_questions += 1
@@ -251,39 +250,71 @@ def save_marks(
             q_objs = db.query(Question).filter(Question.exam_id == exam_id).all()
             existing_labels = {q.label for q in q_objs}
 
-    # Build label->Question map
+    # map label -> Question object
     q_map = {q.label: q for q in q_objs}
     logger.info("Final question labels for exam %s: %s", exam_id, list(q_map.keys()))
 
+    # --- Persist question_rules if present (store dict or JSON string depending on column type) ---
+    try:
+        qr = getattr(payload, "question_rules", None)
+        if qr is not None:
+            exam_row = db.query(Exam).filter(Exam.id == exam_id).first()
+            if exam_row:
+                try:
+                    exam_row.question_rules = qr
+                    db.add(exam_row)
+                    logger.info("Persisted question_rules (direct assign) for exam_id=%s", exam_id)
+                except (TypeError, StatementError):
+                    try:
+                        exam_row.question_rules = json.dumps(qr)
+                        db.add(exam_row)
+                        logger.info("Persisted question_rules (json dump) for exam_id=%s", exam_id)
+                    except Exception as e:
+                        logger.exception("Failed to json-dump question_rules for exam_id=%s: %s", exam_id, e)
+    except Exception as e:
+        logger.exception("Unexpected error while persisting question_rules for exam_id=%s: %s", exam_id, e)
+        # continue — do not abort marks save for rules failure
 
+    # --- Iterate students and save marks ---
     created_marks = 0
     updated_marks = 0
     created_students = 0
 
     try:
-        for s in payload.students:
-            # roll_no should be compatible with Student.roll_no type (int)
-            roll_no = int(s.roll_no)
+        for s in (payload.students or []):
+            # normalize roll_no depending on incoming type
+            try:
+                roll_no = int(s.roll_no)
+            except Exception:
+                # if backend expects string roll_no, change parsing accordingly
+                raise HTTPException(status_code=422, detail=f"Invalid roll_no: {s.roll_no}")
 
-            # find or create student
+            # find existing student or create
             student = db.query(Student).filter(Student.exam_id == exam_id, Student.roll_no == roll_no).first()
             if not student:
-                student = Student(exam_id=exam_id, roll_no=roll_no, absent=bool(s.absent))
+                student = Student(exam_id=exam_id, roll_no=roll_no, absent=bool(getattr(s, "absent", False)))
                 db.add(student)
-                db.flush()  # ensure student.id is available
+                db.flush()  # ensure id populated
                 created_students += 1
-                logger.debug("Created student with roll %s id=%s", roll_no, student.id)
+                logger.debug("Created student roll=%s id=%s", roll_no, student.id)
             else:
-                student.absent = bool(s.absent)
+                # update absent flag
+                student.absent = bool(getattr(s, "absent", False))
                 db.add(student)
 
-            # handle marks for this student
-            for label, raw_val in (s.marks or {}).items():
+            # for safety, capture section_id to assign to marks (either validated section or None)
+            section_id_to_set = section.id if section else None
+
+            # iterate marks map for this student
+            for label, raw_val in (getattr(s, "marks", {}) or {}).items():
+                if label is None:
+                    continue
                 q = q_map.get(label)
                 if not q:
                     logger.warning("Unknown question label %s - skipping (exam %s)", label, exam_id)
                     continue
 
+                # parse numeric or accept None/blank
                 val = None
                 if raw_val is not None and raw_val != "":
                     try:
@@ -291,11 +322,12 @@ def save_marks(
                     except Exception:
                         raise HTTPException(status_code=422, detail=f"Invalid numeric value for {label} for roll {roll_no}")
 
-                mark = db.query(Mark).filter(
-                    Mark.exam_id == exam_id,
-                    Mark.student_id == student.id,
-                    Mark.question_id == q.id
-                ).first()
+                # find existing mark (student + question + exam)
+                mark = (
+                    db.query(Mark)
+                    .filter(Mark.exam_id == exam_id, Mark.student_id == student.id, Mark.question_id == q.id)
+                    .first()
+                )
 
                 if not mark:
                     mark = Mark(
@@ -303,22 +335,23 @@ def save_marks(
                         student_id=student.id,
                         question_id=q.id,
                         marks=val,
-                        section_id=(section.id if section else None)
+                        section_id=section_id_to_set,
                     )
                     db.add(mark)
                     created_marks += 1
                     logger.debug("Added mark: exam=%s student=%s q=%s val=%s", exam_id, student.id, q.id, val)
                 else:
                     mark.marks = val
-                    mark.section_id = (section.id if section else None)
+                    mark.section_id = section_id_to_set
                     db.add(mark)
                     updated_marks += 1
                     logger.debug("Updated mark id=%s -> %s", mark.id, val)
 
         logger.info(
             "Flushing DB. created_questions=%s created_students=%s created_marks=%s updated_marks=%s",
-            created_questions, created_students, created_marks, updated_marks
+            created_questions, created_students, created_marks, updated_marks,
         )
+
         db.flush()
         db.commit()
         logger.info("Commit successful")
@@ -375,6 +408,36 @@ def get_exam_marks(exam_id: int, db: Session = Depends(get_db)):
         "marks": marks_out,
     }
 
+@router.delete("/{exam_id}")
+def delete_exam(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Only admin OR exam creator can delete
+    if current_user.role != "admin":
+        created = db.query(Exam).filter(Exam.id == exam_id).first()
+        if not created:
+            raise HTTPException(status_code=404, detail="Exam not found")
+        if created.created_by != current_user.id:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to delete this exam"
+            )
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    # Delete cascade manually (SQLite does not cascade automatically)
+    db.query(Mark).filter(Mark.exam_id == exam_id).delete()
+    db.query(Student).filter(Student.exam_id == exam_id).delete()
+    db.query(Question).filter(Question.exam_id == exam_id).delete()
+    db.query(ExamSection).filter(ExamSection.exam_id == exam_id).delete()
+
+    db.delete(exam)
+    db.commit()
+
+    return {"status": "success", "message": "Exam deleted successfully"}
 
 
 @router.get("/{exam_id}/export")
@@ -383,12 +446,6 @@ def export_exam_csv(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Export merged CSV with:
-     - Top header block (academic year, subject, semester, exam type)
-     - Single merged table:
-         Roll No, Section, [Q1.A, Q1.B, ..., Total_Q1], [Q2.A, Q2.B, ..., Total_Q2], Grand_Total
-    """
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
@@ -413,24 +470,17 @@ def export_exam_csv(
     # fetch students and marks
     students = db.query(Student).filter(Student.exam_id == exam_id).order_by(Student.roll_no.asc()).all()
     marks = db.query(Mark).filter(Mark.exam_id == exam_id).all()
-    # mark lookup (student_id, question_label) -> value
-    # to map label to question id:
-    q_by_label = {q.label: q for q in questions}
-    marks_map = {}
-    for m in marks:
-        q = m.question_id
-        # we need label for question_id:
-        # build mapping id->label quickly
-        # (we already have q_by_label mapping label->Question; build reverse)
-        # build reverse map once:
-        pass
 
-    # build reverse map id -> label
+    # build reverse map id -> label for questions
     id_to_label = {q.id: q.label for q in questions}
+
+    # marks_map: (student_id, label) -> mark_value
+    marks_map: dict[tuple[int, str], float | None] = {}
     for m in marks:
         lbl = id_to_label.get(m.question_id)
         if lbl:
-            marks_map[(m.student_id, lbl)] = m.marks
+            # preserve None if m.marks is None (so we can output blank cell)
+            marks_map[(m.student_id, lbl)] = None if m.marks is None else float(m.marks)
 
     # build student -> section mapping (if section_id present on marks)
     sections = db.query(ExamSection).filter(ExamSection.exam_id == exam_id).all()
@@ -438,14 +488,35 @@ def export_exam_csv(
     student_section: dict[int, str] = {}
     # prefer section_id saved in marks (if present) otherwise empty string
     for m in marks:
-        if m.section_id:
+        if getattr(m, "section_id", None):
             student_section[m.student_id] = section_name_by_id.get(m.section_id, "")
+
+    # Read question_rules from exam (may be JSON string or dict)
+    raw_qr = getattr(exam, "question_rules", None)
+    try:
+        question_rules = json.loads(raw_qr) if isinstance(raw_qr, str) else (raw_qr or {})
+    except Exception:
+        question_rules = {}
+
+    # helper to extract minToCount integer from possibly different key names
+    def get_rule_min_to_count(rule_obj: Any) -> Optional[int]:
+        if not rule_obj:
+            return None
+        # accept minToCount or min_to_count or min (fallback)
+        if isinstance(rule_obj, dict):
+            for k in ("minToCount", "min_to_count", "min", "min_to_count"):
+                if k in rule_obj and rule_obj[k] is not None:
+                    try:
+                        return int(rule_obj[k])
+                    except Exception:
+                        pass
+        return None
 
     # prepare CSV
     out = io.StringIO()
     writer = csv.writer(out)
 
-    # header block
+    # header block (keep your existing format)
     writer.writerow([f"Academic Year: {exam.academic_year or ''}"])
     writer.writerow([f"Subject: {exam.subject_name} ({exam.subject_code})"])
     writer.writerow([f"Semester: {exam.semester}"])
@@ -465,30 +536,51 @@ def export_exam_csv(
 
     # data rows
     for s in students:
-        row = [s.roll_no, student_section.get(s.id, "")]
+        row: list[Any] = [s.roll_no, student_section.get(s.id, "")]
         grand_total = 0.0
 
         for main in main_order:
             subs = subs_by_main.get(main, [])
-            main_total = 0.0
+            # collect values (None means blank / not entered)
+            sub_vals: list[Optional[float]] = []
             for lbl in subs:
                 val = marks_map.get((s.id, lbl))
+                sub_vals.append(val)
+                # write cell: blank if None, else write numeric preserving fraction
                 if val is None:
-                    row.append("")  # blank if no mark
+                    row.append("")
                 else:
-                    # ensure numeric format preserved (floats allowed)
+                    # keep as number; csv.writer will convert to string
+                    # keep fractional precision as-is (we'll not round here)
                     row.append(val)
-                    try:
-                        main_total += float(val)
-                    except Exception:
-                        pass
-            # after subquestions append main total
-            # format to 2 decimals? leave as number to keep decimals (frontend shows)
-            row.append(round(main_total, 2) if main_total % 1 else int(main_total))
+
+            # compute main total using rules if present
+            rule_obj = question_rules.get(main) if isinstance(question_rules, dict) else None
+            N = get_rule_min_to_count(rule_obj)
+            if N and N > 0:
+                # take top N numeric values (ignore None)
+                numeric_vals = [v for v in sub_vals if v is not None]
+                numeric_vals.sort(reverse=True)
+                chosen = numeric_vals[:N]
+                main_total = sum(chosen)
+            else:
+                # default: sum all present numeric values (ignore None)
+                numeric_vals = [v for v in sub_vals if v is not None]
+                main_total = sum(numeric_vals)
+
+            # format main_total: integer if whole else round 2 decimals
+            if float(main_total).is_integer():
+                row.append(int(main_total))
+            else:
+                row.append(round(main_total, 2))
+
             grand_total += main_total
 
-        # final grand total
-        row.append(round(grand_total, 2) if grand_total % 1 else int(grand_total))
+        # final grand total formatting
+        if float(grand_total).is_integer():
+            row.append(int(grand_total))
+        else:
+            row.append(round(grand_total, 2))
 
         writer.writerow(row)
 
@@ -497,3 +589,37 @@ def export_exam_csv(
     response = StreamingResponse(iter([out.getvalue().encode("utf-8")]), media_type="text/csv")
     response.headers["Content-Disposition"] = f'attachment; filename="{safe_name}"'
     return response
+
+
+
+
+@router.patch("/{exam_id}", response_model=ExamOut)
+def update_exam(
+    exam_id: int,
+    payload: ExamUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    # permission: only admin or exam creator can update metadata
+    if current_user.role != "admin" and exam.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    if payload.subject_code is not None:
+        exam.subject_code = payload.subject_code
+    if payload.subject_name is not None:
+        exam.subject_name = payload.subject_name
+    # ... other fields as needed ...
+
+    if payload.question_rules is not None:
+        # store as JSON string in text column
+        exam.question_rules = json.dumps(payload.question_rules)
+
+    db.add(exam)
+    db.commit()
+    db.refresh(exam)
+    # return parsed rules as dict in pydantic model
+    return exam

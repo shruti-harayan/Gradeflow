@@ -1,9 +1,10 @@
 # backend/app/models/exam.py
-from datetime import datetime
-from sqlalchemy import Column, Float, Integer, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Float, Integer, String, Boolean, ForeignKey, DateTime,Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
+from sqlalchemy.dialects.sqlite import JSON 
+import json
 
 class Exam(Base):
     __tablename__ = "exams"
@@ -20,7 +21,8 @@ class Exam(Base):
     is_locked = Column(Boolean, default=False, nullable=False) 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
+    question_rules = Column(JSON, nullable=True)
+    
     questions = relationship(
         "Question", back_populates="exam", cascade="all, delete-orphan"
     )
@@ -33,6 +35,13 @@ class Exam(Base):
     sections = relationship(
         "ExamSection", back_populates="exam", cascade="all, delete-orphan")
 
+    def get_question_rules(self):
+        if not self.question_rules:
+            return {}
+        try:
+            return json.loads(self.question_rules)
+        except Exception:
+            return {}
 
 class Question(Base):
     __tablename__ = "questions"

@@ -12,7 +12,6 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 
-
 type Student = {
   id: number;
   rollNo: number;
@@ -38,6 +37,12 @@ type MainQuestion = {
   subQuestions: SubQuestion[];
 };
 
+type MainQuestionRule = {
+  mainLabel: string; // "Q1"
+  minToCount: number; // e.g. 3
+  outOf: number; // e.g. 5 
+};
+
 type MarksMap = Record<string, number | "">; // key = `${rollNo}-${MainLabel}.${SubLabel}`
 
 const initialStudents: Student[] = [{ id: 1, rollNo: 101, absent: false }];
@@ -47,19 +52,40 @@ export default function MarksEntry() {
   const [searchParams] = useSearchParams();
 
   const [sections, setSections] = useState<Section[]>([]);
-  const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<number | null>(
+    null
+  );
+  // allow the user to optionally enter an explicit overall max (e.g. 100)
+  const [maxTotalOverride, setMaxTotalOverride] = React.useState<number | "">(
+    ""
+  );
 
   const [creatingSection, setCreatingSection] = React.useState(false);
   const [newSectionName, setNewSectionName] = React.useState("");
   const [newRollStart, setNewRollStart] = React.useState("");
   const [newRollEnd, setNewRollEnd] = React.useState("");
 
-    
-  // exam metadata
-  const [exam, setExam] = React.useState<ExamOut | null>(null);
+  const [mqRuleMain, setMqRuleMain] = React.useState<string>(""); // selected main label in the UI card
+  const [mqRuleMin, setMqRuleMin] = React.useState<number>(1); // min to count (N)
+  const [mqRuleOutOf, setMqRuleOutOf] = React.useState<number>(1); // out of (K) for info
+  const [questionRules, setQuestionRules] = React.useState<
+    Record<string, MainQuestionRule>
+  >({});
+
+  type ExamWithRules = ExamOut & {
+    question_rules?: Record<string, MainQuestionRule> | null;
+  };
+
+  const [exam, setExam] = React.useState<ExamWithRules | null>(null);
   const examIdParam = searchParams.get("examId");
   const examId = examIdParam ? Number(examIdParam) : 0;
+
   const isAdminView = searchParams.get("adminView") === "1";
+  const adminQuery =
+    new URLSearchParams(window.location.search).get("adminView") === "1";
+  const isAdmin =
+    typeof isAdminView !== "undefined" ? (isAdminView as boolean) : adminQuery;
+
   // set to true if THIS teacher final-submits the exam in this session
   const [iFinalized, setIFinalized] = React.useState(false);
 
@@ -84,8 +110,7 @@ export default function MarksEntry() {
   // new main question builder state
   const [newMainQLabel, setNewMainQLabel] = React.useState("");
   const [newMainQSubCount, setNewMainQSubCount] = React.useState<number>(1);
-  const [defaultMaxSubMarks, setDefaultMaxSubMarks] =
-    React.useState<number>(2);
+  const [defaultMaxSubMarks, setDefaultMaxSubMarks] = React.useState<number>(2);
 
   // single-add student fields (kept for small additions)
   const [newStudentRoll, setNewStudentRoll] = React.useState("");
@@ -168,7 +193,20 @@ export default function MarksEntry() {
         setSubjectName(data.exam.subject_name);
         setExamName(data.exam.exam_type);
         setSemester(data.exam.semester);
-        setExam(data.exam);
+        setExam(data.exam as ExamWithRules);
+
+        if (data.exam?.question_rules) {
+          try {
+            // api might return object already, or JSON string depending on backend
+            const rules =
+              typeof data.exam.question_rules === "string"
+                ? JSON.parse(data.exam.question_rules)
+                : data.exam.question_rules;
+            setQuestionRules(rules || {});
+          } catch (err) {
+            console.warn("Failed to parse question_rules", err);
+          }
+        }
 
         if (data.questions && data.questions.length > 0) {
           const mqMap = new Map<string, MainQuestion>();
@@ -210,7 +248,7 @@ export default function MarksEntry() {
 
         // students
         if (data.students && data.students.length > 0) {
-          const ss: Student[] = data.students.map((s:any) => ({
+          const ss: Student[] = data.students.map((s: any) => ({
             id: s.id,
             rollNo: s.roll_no,
             absent: s.absent,
@@ -244,7 +282,6 @@ export default function MarksEntry() {
     }
 
     loadExam();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examId]);
 
   // helpers
@@ -303,35 +340,46 @@ export default function MarksEntry() {
     setNewRollTo("");
   }
 
-function handleAddSingleStudent(e: React.FormEvent) {
-  e.preventDefault();
-  if (isAdminView || disabled) return;
+  function handleAddSingleStudent(e: React.FormEvent) {
+    e.preventDefault();
+    if (isAdminView || disabled) return;
 
-  const raw = newStudentRoll?.trim();
-  if (!raw) return;
+    const raw = newStudentRoll?.trim();
+    if (!raw) return;
 
-  // parse integer (you can use Number(raw) if you want to allow non-integers)
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-    alert("Please enter a valid integer roll number.");
-    return;
+    // parse integer (you can use Number(raw) if you want to allow non-integers)
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+      alert("Please enter a valid integer roll number.");
+      return;
+    }
+
+    // optional: prevent duplicates
+    if (students.some((s) => s.rollNo === parsed)) {
+      alert("This roll number already exists.");
+      return;
+    }
+
+    // append new Student (rollNo is a number)
+    setStudents((prev: Student[]) => [
+      ...prev,
+      { id: Date.now(), rollNo: parsed, absent: false },
+    ]);
+
+    setNewStudentRoll("");
   }
 
-  // optional: prevent duplicates
-  if (students.some((s) => s.rollNo === parsed)) {
-    alert("This roll number already exists.");
-    return;
+  function applyQuestionRuleLocally(mqLabel: string, N: number, K: number) {
+    if (!mqLabel) {
+      alert("Please select a main question.");
+      return;
+    }
+    const newRules = {
+      ...questionRules,
+      [mqLabel]: { mainLabel: mqLabel, minToCount: N, outOf: K },
+    };
+    setQuestionRules(newRules);
   }
-
-  // append new Student (rollNo is a number)
-  setStudents((prev: Student[]) => [
-    ...prev,
-    { id: Date.now(), rollNo: parsed, absent: false },
-  ]);
-
-  setNewStudentRoll("");
-}
-
 
   // --- Main question add: prevent duplicate main labels ---
   function handleAddMainQuestion(e: React.FormEvent) {
@@ -343,7 +391,9 @@ function handleAddSingleStudent(e: React.FormEvent) {
 
     // Prevent duplicate main question labels
     if (mainQuestions.some((mq) => mq.label === label)) {
-      alert(`Main question ${label} already exists. Please choose a different label.`);
+      alert(
+        `Main question ${label} already exists. Please choose a different label.`
+      );
       return;
     }
 
@@ -367,67 +417,72 @@ function handleAddSingleStudent(e: React.FormEvent) {
     setNewMainQSubCount(1);
   }
 
+  function addSubQuestionToMain(mainLabel: string) {
+    if (isAdminView || disabled) return;
+    setMainQuestions((prev) =>
+      prev.map((mq) => {
+        if (mq.label !== mainLabel) return mq;
+        const subs = mq.subQuestions || [];
 
-function addSubQuestionToMain(mainLabel: string) {
-  if (isAdminView || disabled) return;
-  setMainQuestions((prev) =>
-    prev.map((mq) => {
-      if (mq.label !== mainLabel) return mq;
-      const subs = mq.subQuestions || [];
-
-      // determine next candidate letter
-      let nextChar = "A";
-      if (subs.length > 0) {
-        // find highest letter used
-        const letters = subs.map((s) => s.label).filter(Boolean);
-        const codes = letters
-          .map((l) => l.charCodeAt(0))
-          .filter((c) => Number.isFinite(c));
-        const maxCode = codes.length ? Math.max(...codes) : 64; // 64 so +1 => 'A'
-        nextChar = String.fromCharCode(maxCode + 1);
-      }
-
-      // ensure unique label (defensive)
-      let attempt = nextChar;
-      let i = 0;
-      while (subs.some((s) => s.label === attempt) && i < 26) {
-        attempt = String.fromCharCode(attempt.charCodeAt(0) + 1);
-        i++;
-      }
-      if (attempt.charCodeAt(0) > 90) {
-        alert("Cannot add more sub-questions (limit reached).");
-        return mq;
-      }
-
-      let proposedMax = 1;
-      if (subs.length > 0) {
-        const last = subs[subs.length - 1];
-        if (last && Number.isFinite(last.maxMarks) && last.maxMarks > 0) {
-          proposedMax = last.maxMarks;
-        } else if (Number.isFinite(defaultMaxSubMarks) && defaultMaxSubMarks > 0) {
-          proposedMax = defaultMaxSubMarks;
+        // determine next candidate letter
+        let nextChar = "A";
+        if (subs.length > 0) {
+          // find highest letter used
+          const letters = subs.map((s) => s.label).filter(Boolean);
+          const codes = letters
+            .map((l) => l.charCodeAt(0))
+            .filter((c) => Number.isFinite(c));
+          const maxCode = codes.length ? Math.max(...codes) : 64; // 64 so +1 => 'A'
+          nextChar = String.fromCharCode(maxCode + 1);
         }
-      } else {
-        // no existing subs — use default but ensure >=1
-        proposedMax = Number.isFinite(defaultMaxSubMarks) && defaultMaxSubMarks > 0 ? defaultMaxSubMarks : 1;
-      }
 
-      // final sanity: ensure an integer >= 1
-      proposedMax = Math.max(1, Math.round(proposedMax));
+        // ensure unique label (defensive)
+        let attempt = nextChar;
+        let i = 0;
+        while (subs.some((s) => s.label === attempt) && i < 26) {
+          attempt = String.fromCharCode(attempt.charCodeAt(0) + 1);
+          i++;
+        }
+        if (attempt.charCodeAt(0) > 90) {
+          alert("Cannot add more sub-questions (limit reached).");
+          return mq;
+        }
 
-      const newSub: SubQuestion = {
-        id: Date.now() + Math.random() * 10000,
-        label: attempt,
-        maxMarks: proposedMax,
-      };
+        let proposedMax = 1;
+        if (subs.length > 0) {
+          const last = subs[subs.length - 1];
+          if (last && Number.isFinite(last.maxMarks) && last.maxMarks > 0) {
+            proposedMax = last.maxMarks;
+          } else if (
+            Number.isFinite(defaultMaxSubMarks) &&
+            defaultMaxSubMarks > 0
+          ) {
+            proposedMax = defaultMaxSubMarks;
+          }
+        } else {
+          // no existing subs — use default but ensure >=1
+          proposedMax =
+            Number.isFinite(defaultMaxSubMarks) && defaultMaxSubMarks > 0
+              ? defaultMaxSubMarks
+              : 1;
+        }
 
-      return {
-        ...mq,
-        subQuestions: [...subs, newSub],
-      };
-    })
-  );
-}
+        // final sanity: ensure an integer >= 1
+        proposedMax = Math.max(1, Math.round(proposedMax));
+
+        const newSub: SubQuestion = {
+          id: Date.now() + Math.random() * 10000,
+          label: attempt,
+          maxMarks: proposedMax,
+        };
+
+        return {
+          ...mq,
+          subQuestions: [...subs, newSub],
+        };
+      })
+    );
+  }
 
   function handleToggleAbsent(studentId: number) {
     if (disabled) return;
@@ -465,11 +520,32 @@ function addSubQuestionToMain(mainLabel: string) {
   }
 
   function mainTotalForStudent(rollNo: number, mq: MainQuestion) {
-    return mq.subQuestions.reduce((acc, sq) => {
-      const key = marksKey(rollNo, `${mq.label}.${sq.label}`);
-      const v = marks[key];
-      return acc + (typeof v === "number" ? v : 0);
-    }, 0);
+    // collect numeric marks for each sub-question for this student
+    const vals: number[] = mq.subQuestions
+      .map((sq) => {
+        const key = marksKey(rollNo, `${mq.label}.${sq.label}`);
+        const v = marks[key];
+        if (v === "" || v === null || v === undefined) return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      })
+      .filter((v): v is number => v !== null);
+
+    // get rule if present
+    const rule = questionRules[mq.label];
+
+    if (rule && rule.minToCount && rule.minToCount > 0) {
+      // count top N
+      const N = Math.max(1, Math.min(rule.minToCount, mq.subQuestions.length));
+      // sort descending and take top N
+      const sorted = vals.slice().sort((a, b) => b - a);
+      const chosen = sorted.slice(0, N);
+      const sum = chosen.reduce((a, b) => a + b, 0);
+      return sum;
+    }
+
+    // default: sum all sub-questions (existing behavior)
+    return vals.reduce((a, b) => a + b, 0);
   }
 
   function grandTotalForStudent(rollNo: number) {
@@ -485,6 +561,39 @@ function addSubQuestionToMain(mainLabel: string) {
       0
     );
   }
+
+  // compute grand max based on questions and questionRules (uses only typed field minToCount)
+function computeComputedGrandMax() {
+  try {
+    let grand = 0;
+    for (const mq of mainQuestions) {
+      const subs = mq.subQuestions || [];
+      const subMaxes = subs.map((sq) => Number(sq.maxMarks || 0));
+
+      const rule: MainQuestionRule | undefined = questionRules?.[mq.label];
+      const n = rule && Number.isFinite(Number(rule.minToCount)) ? Number(rule.minToCount) : null;
+
+      if (n && n > 0) {
+        const sorted = subMaxes.slice().sort((a, b) => b - a);
+        grand += sorted.slice(0, n).reduce((s, v) => s + (Number(v) || 0), 0);
+      } else {
+        grand += subMaxes.reduce((s, v) => s + (Number(v) || 0), 0);
+      }
+    }
+    return grand;
+  } catch (e) {
+    console.warn("Failed to compute computedGrandMax:", e);
+    return 0;
+  }
+}
+
+function displayedGrandMax() {
+  const computed = computeComputedGrandMax();
+  if (maxTotalOverride === "" || maxTotalOverride === null) return computed;
+  const ov = Number(maxTotalOverride) || 0;
+  return Math.min(computed, ov);
+}
+
 
   async function handleFinalize() {
     if (!exam) {
@@ -507,7 +616,7 @@ function addSubQuestionToMain(mainLabel: string) {
     try {
       await finalizeExam(exam.id);
       setExam((prev) =>
-        prev ? ({ ...prev, is_locked: true } as ExamOut) : prev
+        prev ? ({ ...prev, is_locked: true } as ExamWithRules) : prev
       );
 
       // mark that THIS teacher finalized it (so banner shows the teacher message)
@@ -521,69 +630,69 @@ function addSubQuestionToMain(mainLabel: string) {
   }
 
   async function handleExportCSV() {
-  if (!examId) {
-    alert("Exam not created yet.");
-    return;
+    if (!examId) {
+      alert("Exam not created yet.");
+      return;
+    }
+    const safe = (s: string) =>
+      s.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\.]/g, "");
+    const filename = `${safe(subjectName)}_${safe(
+      examName
+    )}_Sem${semester}_${academicYear}.csv`;
+    try {
+      await downloadExamCsv(examId, filename);
+    } catch (err) {
+      console.error("CSV export failed", err);
+      alert("Failed to export CSV");
+    }
   }
-  const safe = (s: string) => s.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\.]/g, "");
-  const filename = `${safe(subjectName)}_${safe(examName)}_Sem${semester}_${academicYear}.csv`;
-  try {
-    await downloadExamCsv(examId, filename);
-  } catch (err) {
-    console.error("CSV export failed", err);
-    alert("Failed to export CSV");
-  }
-}
-
 
   async function handleSaveToServer() {
-  setError(null);
+    if (sections && sections.length > 0 && !selectedSectionId) {
+      alert("Please select a section before saving marks.");
+      return;
+    }
 
-  // --- BASIC VALIDATIONS ---
-  if (!selectedSectionId) {
-    alert("Please select a section before saving marks.");
-    return;
-  }
+    if (!examId || examId <= 0) {
+      alert(
+        "This exam is not linked to backend yet. Create it from Teacher Dashboard to save."
+      );
+      return;
+    }
+    if (disabled) {
+      alert(
+        "Your account has been frozen or exam finalized. You cannot save marks."
+      );
+      return;
+    }
 
-  if (!examId || examId <= 0) {
-    alert("This exam is not linked to backend yet. Create it from Teacher Dashboard to save.");
-    return;
-  }
-
-  if (disabled) {
-    alert("Your account has been frozen or exam finalized. You cannot save marks.");
-    return;
-  }
-
-  // --- FLATTEN QUESTIONS ---
-  const questionsPayload = mainQuestions.flatMap((mq) =>
-    mq.subQuestions.map((sq) => ({
-      label: `${mq.label}.${sq.label}`,
-      max_marks: sq.maxMarks,
-    }))
-  );
-
-  const studentsPayload = students.map((s) => {
-    const marksMap: Record<string, number | null> = {};
-
-    mainQuestions.forEach((mq) =>
-      mq.subQuestions.forEach((sq) => {
-        const label = `${mq.label}.${sq.label}`;
-        const mk = marks[marksKey(s.rollNo, label)];
-        marksMap[label] =
-          mk === "" || mk === null || mk === undefined ? null : Number(mk);
-      })
+    // Flatten questions to [{ label: "Q1.A", max_marks: 5 }, ...]
+    const questionsPayload = mainQuestions.flatMap((mq) =>
+      mq.subQuestions.map((sq) => ({
+        label: `${mq.label}.${sq.label}`,
+        max_marks: sq.maxMarks,
+      }))
     );
 
-    return {
-      roll_no: Number(s.rollNo), 
-      absent: !!s.absent,
-      marks: marksMap,
-    };
-  });
+    // For each student build marks map keyed by "Q1.A"
+    const studentsPayload = students.map((s) => {
+      const marksMap: Record<string, number | null> = {};
+      mainQuestions.forEach((mq) =>
+        mq.subQuestions.forEach((sq) => {
+          const key = `${mq.label}.${sq.label}`;
+          const mk = marks[marksKey(s.rollNo, key)];
+          marksMap[key] = typeof mk === "number" ? mk : null;
+        })
+      );
 
-  // --- SEND TO BACKEND ---
-  try {
+      return {
+        roll_no: Number(s.rollNo),
+        absent: s.absent,
+        marks: marksMap,
+      };
+    });
+
+    // Build final payload
     const payload = {
       section_id: selectedSectionId,
       subject_code: subjectCode,
@@ -593,39 +702,31 @@ function addSubQuestionToMain(mainLabel: string) {
       academic_year: academicYear,
       questions: questionsPayload,
       students: studentsPayload,
-    };
+      question_rules: questionRules,
+    } as any;
 
-    console.log("Payload being sent →", payload);
-
-    await saveExamMarks(examId, payload);
-
-    alert("Marks saved to server successfully!!");
-  } catch (err: any) {
-    console.error("Save failed ↓↓↓", err);
-
-    let message = "Failed to save marks";
-
-    if (err?.response?.data?.detail) {
-      const detail = err.response.data.detail;
-
-      if (Array.isArray(detail)) {
-        message = detail
+    try {
+      await saveExamMarks(examId, payload);
+      alert("Marks and rules saved to server successfully ✅");
+    } catch (err: any) {
+      console.error("Save failed", err);
+      const resp = err?.response?.data;
+      let message = "Failed to save marks";
+      if (resp?.detail && Array.isArray(resp.detail)) {
+        message = resp.detail
           .map((d: any) => {
-            const loc = Array.isArray(d.loc) ? d.loc.join(" → ") : d.loc;
+            const loc = Array.isArray(d.loc) ? d.loc.join(" -> ") : d.loc;
             return `${loc}: ${d.msg}`;
           })
-          .join("\n");
-      } else {
-        message = JSON.stringify(detail);
+          .join("; ");
+      } else if (resp) {
+        message = JSON.stringify(resp);
+      } else if (err?.message) {
+        message = err.message;
       }
-    } else if (err?.message) {
-      message = err.message;
+      setError(message);
     }
-
-    setError(message);
   }
-}
-
 
   // UI render
   return (
@@ -642,21 +743,19 @@ function addSubQuestionToMain(mainLabel: string) {
             <span>{subjectName}</span> · Sem {semester}
           </p>
         </div>
-
         {isAdminView && (
           <span className="ml-3 inline-block rounded-full bg-yellow-600 px-2 py-1 text-xs font-semibold text-black">
             Admin view — read only
           </span>
         )}
-
         {isFrozen && (
           <div className="mb-4 rounded-md bg-red-900/80 p-3 text-red-100">
             Your account has been frozen by the admin. You cannot edit marks.
             Contact the admin to unfreeze your account.
           </div>
         )}
-
-        {/* Show appropriate locked message only to the teacher-owner or when admin locked */}        {/* 🔒 Teacher-only lock messages (NEVER show for admin) */}
+        {/* Show appropriate locked message only to the teacher-owner or when admin locked */}{" "}
+        {/* 🔒 Teacher-only lock messages (NEVER show for admin) */}
         {isFinalized && user?.role === "teacher" && !isAdminView && (
           <div className="mb-4">
             {(() => {
@@ -688,7 +787,6 @@ function addSubQuestionToMain(mainLabel: string) {
             )}
           </div>
         )}
-
         {/* Admin view → show teacher-submitted banner ONLY if teacher actually finalized */}
         {isFinalized &&
           isAdminView &&
@@ -705,9 +803,7 @@ function addSubQuestionToMain(mainLabel: string) {
               </div>
             ) : null;
           })()}
-
         {error && <p className="text-red-500">{error}</p>}
-
         <div className="flex flex-wrap gap-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-slate-400">Subject code</span>
@@ -776,6 +872,93 @@ function addSubQuestionToMain(mainLabel: string) {
         </div>
       </div>
 
+      {/* Summary card */}
+
+      <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/80 p-4 max-w-full">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-100">Summary</h3>
+            <div className="text-xs text-slate-400 mt-2 space-y-2">
+              <div>
+                Students:{" "}
+                <span className="font-semibold text-slate-100">
+                  {students.length}
+                </span>
+              </div>
+              <div>
+                Main questions:{" "}
+                <span className="font-semibold text-slate-100">
+                  {mainQuestions.length}
+                </span>
+              </div>
+              <div>
+                Sub columns:{" "}
+                <span className="font-semibold text-slate-100">
+                  {mainQuestions.reduce(
+                    (s, mq) => s + (mq.subQuestions?.length || 0),
+                    0
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-[260px]">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs text-slate-400">Computed grand max</div>
+                <div className="text-lg font-semibold text-emerald-300">
+                  {computeComputedGrandMax()}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <label className="text-xs text-slate-400 block">
+                  Max total (optional)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={
+                    maxTotalOverride === "" ? "" : String(maxTotalOverride)
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "") {
+                      setMaxTotalOverride("");
+                    } else {
+                      // allow fractional? Parse as number. Use Math.max(0, value)
+                      const n = Number(v);
+                      setMaxTotalOverride(
+                        Number.isFinite(n) ? Math.max(0, n) : ""
+                      );
+                    }
+                  }}
+                  placeholder="e.g. 100"
+                  className="w-full mt-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100 text-right"
+                  disabled={
+                    isAdminView &&
+                    false /* optional: keep editable by admin/teacher both */
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 border-t border-slate-800 pt-3 text-sm">
+              <div className="text-xs text-slate-400">Displayed Grand Max</div>
+              <div className="font-semibold text-slate-100">
+                {displayedGrandMax()}
+              </div>
+              {maxTotalOverride !== "" && (
+                <div className="text-xs text-slate-500 mt-1">
+                  (capped by entered max: {maxTotalOverride})
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="mb-4 flex items-center gap-3">
         <label className="text-sm text-slate-300">Section</label>
 
@@ -794,8 +977,23 @@ function addSubQuestionToMain(mainLabel: string) {
         </select>
 
         <button
-          className="ml-2 text-xs bg-indigo-600 px-2 py-1 rounded text-white"
-          onClick={() => setCreatingSection(true)}
+          className={`ml-2 text-xs px-2 py-1 rounded text-white ${
+            isAdmin
+              ? "bg-slate-700 cursor-not-allowed opacity-60"
+              : "bg-indigo-600 hover:bg-indigo-700"
+          }`}
+          onClick={() => {
+            if (isAdmin) {
+              // extra safety: do nothing and optionally show a friendly message
+              alert("Admins cannot create sections from this view.");
+              return;
+            }
+            setCreatingSection(true);
+          }}
+          disabled={isAdmin}
+          title={
+            isAdmin ? "Admins cannot create sections" : "Create a new section"
+          }
         >
           Create Section
         </button>
@@ -805,6 +1003,7 @@ function addSubQuestionToMain(mainLabel: string) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-slate-900 p-4 rounded max-w-sm w-full">
             <h3 className="text-white font-semibold">Create section</h3>
+
             <div className="mt-2 space-y-2">
               <input
                 placeholder="Section name (A)"
@@ -817,12 +1016,16 @@ function addSubQuestionToMain(mainLabel: string) {
                 value={newRollStart}
                 onChange={(e) => setNewRollStart(e.target.value)}
                 className="w-full p-2 bg-slate-800 rounded border border-slate-700"
+                type="number"
+                min={0}
               />
               <input
                 placeholder="Roll end (e.g. 156)"
                 value={newRollEnd}
                 onChange={(e) => setNewRollEnd(e.target.value)}
                 className="w-full p-2 bg-slate-800 rounded border border-slate-700"
+                type="number"
+                min={0}
               />
               <div className="flex justify-end gap-2">
                 <button
@@ -831,8 +1034,24 @@ function addSubQuestionToMain(mainLabel: string) {
                 >
                   Cancel
                 </button>
+
                 <button
                   onClick={async () => {
+                    // compute isAdmin again in case scope differs
+                    const adminQuery2 =
+                      new URLSearchParams(window.location.search).get(
+                        "adminView"
+                      ) === "1";
+                    const isAdmin2 =
+                      typeof isAdminView !== "undefined"
+                        ? (isAdminView as boolean)
+                        : adminQuery2;
+                    if (isAdmin2) {
+                      alert("Admins cannot create sections.");
+                      setCreatingSection(false);
+                      return;
+                    }
+
                     try {
                       const payload = {
                         exam_id: examId,
@@ -840,6 +1059,7 @@ function addSubQuestionToMain(mainLabel: string) {
                         roll_start: Number(newRollStart),
                         roll_end: Number(newRollEnd),
                       };
+
                       const r = await api.post("/exams/sections", payload);
                       // refresh sections and auto-select the newly created one
                       setSections((prev) => [...prev, r.data]);
@@ -847,19 +1067,29 @@ function addSubQuestionToMain(mainLabel: string) {
 
                       // auto-generate rows for the newly created section
                       try {
-                        const rs = Number(r.data.roll_start ?? r.data.rollStart ?? 0);
-                        const re = Number(r.data.roll_end ?? r.data.rollEnd ?? 0);
-                        if (Number.isFinite(rs) && Number.isFinite(re) && rs <= re) {
+                        const rs = Number(
+                          r.data.roll_start ?? r.data.rollStart ?? 0
+                        );
+                        const re = Number(
+                          r.data.roll_end ?? r.data.rollEnd ?? 0
+                        );
+                        if (
+                          Number.isFinite(rs) &&
+                          Number.isFinite(re) &&
+                          rs <= re
+                        ) {
                           const generated = generateStudentsFromRange(rs, re);
                           setStudents(generated);
                         }
                       } catch (ex) {
-                        // ignore generation errors
-                        console.warn("Failed to auto-generate students for new section", ex);
+                        console.warn(
+                          "Failed to auto-generate students for new section",
+                          ex
+                        );
                       }
 
                       setCreatingSection(false);
-                    } catch (err:any) {
+                    } catch (err: any) {
                       alert(
                         err?.response?.data?.detail ||
                           "Failed to create section"
@@ -877,11 +1107,11 @@ function addSubQuestionToMain(mainLabel: string) {
       )}
 
       {/* Controls: roll-range / add single student / add main question */}
-      <div className="grid gap-4 md:grid-cols-3">
-        {/* Roll range generator & single-add */}
+      <div className="grid gap-4 md:grid-cols-[1fr_1fr_320px]">
+        {/* Left column (Students) */}
         <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
+          {/* --- Students card (unchanged content) --- */}
           <h3 className="text-sm font-semibold text-slate-100">Students</h3>
-
           <form onSubmit={handleAddSingleStudent} className="flex gap-2">
             <input
               value={newStudentRoll}
@@ -904,31 +1134,33 @@ function addSubQuestionToMain(mainLabel: string) {
           </form>
 
           <div className="border-t border-slate-800 pt-3 text-xs text-slate-400">
-            <div className="mb-2">
-              Generate many students by roll no range (inclusive):
-            </div>
             <form
               onSubmit={handleGenerateRange}
               className="flex gap-2 items-center"
             >
-              <label className="text-[12px]">From</label>
-              <input
-                type="number"
-                min={0}
-                value={newRollFrom}
-                onChange={(e) => setNewRollFrom(e.target.value)}
-                className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
-                disabled={isAdminView || disabled}
-              />
-              <label className="text-[12px]">To</label>
-              <input
-                type="number"
-                min={0}
-                value={newRollTo}
-                onChange={(e) => setNewRollTo(e.target.value)}
-                className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
-                disabled={isAdminView || disabled}
-              />
+              <div className="flex items-center gap-2">
+                <label className="text-[12px]">From</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={newRollFrom}
+                  onChange={(e) => setNewRollFrom(e.target.value)}
+                  className="w-24 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
+                  disabled={isAdminView || disabled}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-[12px]">To</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={newRollTo}
+                  onChange={(e) => setNewRollTo(e.target.value)}
+                  className="w-24 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
+                  disabled={isAdminView || disabled}
+                />
+              </div>
+
               <button
                 type="submit"
                 disabled={isAdminView || disabled}
@@ -941,6 +1173,7 @@ function addSubQuestionToMain(mainLabel: string) {
                 Generate
               </button>
             </form>
+
             <div className="mt-2 text-[11px] text-slate-500">
               Example: From <span className="font-mono">201</span> To{" "}
               <span className="font-mono">255</span> → generates 55 rows.
@@ -948,7 +1181,7 @@ function addSubQuestionToMain(mainLabel: string) {
           </div>
         </div>
 
-        {/* Add main question */}
+        {/* Middle column (Add main question) */}
         <form
           onSubmit={handleAddMainQuestion}
           className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 space-y-2"
@@ -1001,31 +1234,161 @@ function addSubQuestionToMain(mainLabel: string) {
           </div>
         </form>
 
-        {/* Summary box: counts */}
+        {/* Right column: Question rules (moved here in place of summary) */}
         <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4">
-          <h3 className="text-sm font-semibold text-slate-100">Summary</h3>
+          <h3 className="text-sm font-semibold text-slate-100">
+            Question rules
+          </h3>
           <div className="text-xs text-slate-400 mt-2">
-            <div>
-              Students:{" "}
-              <span className="font-semibold text-slate-100">
-                {students.length}
-              </span>
+            Apply "answer any N out of K" for a main question — the system will
+            count the highest N sub-marks when computing totals.
+          </div>
+
+          <div className="mt-3 space-y-2">
+            <div className="flex gap-2 items-center">
+              <label className="text-xs text-slate-300">Main Q</label>
+              <select
+                value={mqRuleMain}
+                onChange={(e) => setMqRuleMain(e.target.value)}
+                className="rounded bg-slate-900 border border-slate-700 px-2 py-1 text-xs"
+              >
+                <option value="">-- select main question --</option>
+                {mainQuestions.map((mq) => (
+                  <option key={mq.label} value={mq.label}>
+                    {mq.label}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div>
-              Main questions:{" "}
-              <span className="font-semibold text-slate-100">
-                {mainQuestions.length}
-              </span>
+
+            <div className="flex gap-2 items-center">
+              <label className="text-xs text-slate-300">Min to count (N)</label>
+              <input
+                type="number"
+                min={1}
+                value={mqRuleMin}
+                onChange={(e) => setMqRuleMin(Number(e.target.value))}
+                className="w-20 rounded bg-slate-900 border border-slate-700 px-2 py-1 text-xs"
+              />
+              <label className="text-xs text-slate-300">Out of (K)</label>
+              <input
+                type="number"
+                min={1}
+                value={mqRuleOutOf}
+                onChange={(e) => setMqRuleOutOf(Number(e.target.value))}
+                className="w-20 rounded bg-slate-900 border border-slate-700 px-2 py-1 text-xs"
+              />
             </div>
-            <div>
-              Sub columns:{" "}
-              <span className="font-semibold text-slate-100">
-                {mainQuestions.reduce((s, mq) => s + mq.subQuestions.length, 0)}
-              </span>
+
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  if (isAdminView) return; // extra guard
+                  if (!mqRuleMain) {
+                    alert("Please pick a main question first.");
+                    return;
+                  }
+                  const mq = mainQuestions.find((x) => x.label === mqRuleMain);
+                  if (!mq) {
+                    alert("Selected main question not found.");
+                    return;
+                  }
+                  const K = Math.max(1, Math.floor(mqRuleOutOf));
+                  const N = Math.max(1, Math.floor(mqRuleMin));
+                  if (
+                    N > mq.subQuestions.length ||
+                    K > mq.subQuestions.length
+                  ) {
+                    if (
+                      !confirm(
+                        `You set N=${N}, K=${K} but this main question has ${mq.subQuestions.length} sub-questions. Proceed?`
+                      )
+                    ) {
+                      return;
+                    }
+                  }
+
+                  // apply locally (existing function you already have)
+                  applyQuestionRuleLocally(mqRuleMain, N, K);
+
+                  // reset inputs
+                  setMqRuleMain("");
+                  setMqRuleMin(1);
+                  setMqRuleOutOf(1);
+                }}
+                disabled={isAdminView}
+                title={
+                  isAdminView ? "Admins cannot apply question rules" : undefined
+                }
+                className={`rounded ${
+                  isAdminView
+                    ? "bg-slate-700 cursor-not-allowed opacity-60"
+                    : "bg-emerald-600 hover:bg-emerald-700"
+                } px-3 py-1 text-xs text-white`}
+              >
+                Apply
+              </button>
+
+              <button
+                onClick={() => {
+                  setMqRuleMain("");
+                  setMqRuleMin(1);
+                  setMqRuleOutOf(1);
+                }}
+                className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200"
+              >
+                Reset
+              </button>
             </div>
-            <div className="mt-2">
-              Grand max:{" "}
-              <span className="font-semibold text-slate-100">{maxTotal()}</span>
+
+            <div className="mt-3 text-xs text-slate-300">
+              <div className="font-semibold text-slate-200 mb-1">
+                Active rules
+              </div>
+              {Object.keys(questionRules).length === 0 ? (
+                <div className="text-slate-500">None</div>
+              ) : (
+                <ul className="space-y-2">
+                  {Object.values(questionRules).map((r) => (
+                    <li
+                      key={r.mainLabel}
+                      className="flex items-center justify-between bg-slate-900/70 p-2 rounded"
+                    >
+                      <div>
+                        <span className="font-medium">{r.mainLabel}</span> —
+                        count highest{" "}
+                        <span className="font-semibold">{r.minToCount}</span>{" "}
+                        out of <span className="font-semibold">{r.outOf}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (isAdminView) return; // extra guard
+                            setQuestionRules((prev) => {
+                              const copy = { ...prev };
+                              delete copy[r.mainLabel];
+                              return copy;
+                            });
+                          }}
+                          disabled={isAdminView}
+                          title={
+                            isAdminView
+                              ? "Admins cannot remove question rules"
+                              : "Remove rule"
+                          }
+                          className={`text-xs rounded px-2 py-0.5 ${
+                            isAdminView
+                              ? "bg-slate-700 cursor-not-allowed opacity-60"
+                              : "bg-rose-600"
+                          } text-white`}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
@@ -1035,146 +1398,270 @@ function addSubQuestionToMain(mainLabel: string) {
       <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 overflow-x-auto shadow-lg shadow-slate-900/40">
         <table className="min-w-full text-xs">
           <thead>
-            <tr className="border-b border-slate-800 text-slate-300">
-              <th className="px-3 py-2 text-left font-medium">Roll no</th>
-              <th className="px-3 py-2 text-center font-medium">Absent</th>
+            {(() => {
+              // --- build groups (single source of truth) ---
+              const groups: Array<{
+                main: string;
+                type: "sub" | "total";
+                label?: string;
+                maxMarks?: number;
+                isLastSubForMain?: boolean;
+              }> = [];
 
-              {/* Flattened sub-question columns */}
-              {mainQuestions.flatMap((mq) =>
-                mq.subQuestions.map((sq, idx) => {
-                  const isLast = idx === mq.subQuestions.length - 1;
-                  return (
-                    <th
-                      key={`${mq.label}.${sq.label}`}
-                      className="px-2 py-2 text-center font-medium"
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        <div>
-                          {mq.label}.{sq.label}
-                          <div className="text-[10px] text-slate-500">
-                            /{sq.maxMarks}
-                          </div>
-                        </div>
-                        {/* + button only for the last sub-question of the main question */}
-                        {isLast && !isAdminView && !disabled && (
-                          <button
-                            type="button"
-                            onClick={() => addSubQuestionToMain(mq.label)}
-                            className="ml-1 rounded px-1 py-0.5 bg-slate-800 text-slate-200 text-xs"
-                            title={`Add ${mq.label}.${String.fromCharCode(
-                              sq.label.charCodeAt(0) + 1
-                            )}`}
-                          >
-                            +
-                          </button>
-                        )}
-                      </div>
+              mainQuestions.forEach((mq) => {
+                const subs = mq.subQuestions || [];
+                subs.forEach((sq, idx) => {
+                  groups.push({
+                    main: mq.label,
+                    type: "sub",
+                    label: sq.label,
+                    maxMarks: sq.maxMarks,
+                    isLastSubForMain: idx === subs.length - 1,
+                  });
+                });
+                groups.push({ main: mq.label, type: "total" });
+              });
+
+              // compute span per main for top header
+              const spanByMain = new Map<string, number>();
+              mainQuestions.forEach((mq) => {
+                spanByMain.set(mq.label, (mq.subQuestions?.length ?? 0) + 1);
+              });
+
+              return (
+                <>
+                  {/* TOP ROW */}
+                  <tr className="border-b border-slate-800 text-slate-300">
+                    <th rowSpan={2} className="px-3 py-2 text-left font-medium">
+                      Roll no
                     </th>
-                  );
-                })
-              )}
+                    <th
+                      rowSpan={2}
+                      className="px-3 py-2 text-center font-medium"
+                    >
+                      Absent
+                    </th>
 
-              {/* main totals */}
-              {mainQuestions.map((mq) => (
-                <th
-                  key={`${mq.label}.Total`}
-                  className="px-3 py-2 text-center font-medium"
-                >
-                  {mq.label}.Total
-                </th>
-              ))}
+                    {mainQuestions.map((mq) => {
+                      const span = spanByMain.get(mq.label) ?? 1;
+                      const rule = questionRules[mq.label];
+                      return (
+                        <th
+                          key={`group-${mq.label}`}
+                          colSpan={span}
+                          className="px-2 py-2 text-center align-middle"
+                        >
+                          <div className="flex flex-col items-center justify-center gap-1">
+                            <div className="text-xs font-semibold text-slate-200">
+                              {mq.label}
+                            </div>
+                            {rule ? (
+                              <div className="inline-flex items-center rounded-full bg-sky-600/90 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                any {rule.minToCount} of {rule.outOf}
+                              </div>
+                            ) : (
+                              <div style={{ height: 22 }} />
+                            )}
+                          </div>
+                        </th>
+                      );
+                    })}
 
-              <th className="px-3 py-2 text-center font-bold text-emerald-300">
-                Grand Total
-              </th>
-            </tr>
+                    <th
+                      rowSpan={2}
+                      className="px-3 py-2 text-center font-bold text-emerald-300"
+                    >
+                      Grand Total
+                    </th>
+                  </tr>
+
+                  {/* SECOND ROW: render the groups in the exact order */}
+                  <tr className="border-b border-slate-800 text-slate-300">
+                    {groups.map((g, idx) => {
+                      if (g.type === "sub") {
+                        const mqLabel = g.main;
+                        const sqLabel = g.label!;
+                        const maxMarks = g.maxMarks ?? 0;
+                        const isLast = !!g.isLastSubForMain;
+                        return (
+                          <th
+                            key={`${mqLabel}.${sqLabel}-${idx}`}
+                            className="px-2 py-2 text-center font-medium"
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              <div className="flex flex-col items-center">
+                                <div className="font-semibold text-slate-200">
+                                  {mqLabel}.{sqLabel}
+                                </div>
+                                <div className="text-[10px] text-slate-500">
+                                  /{maxMarks}
+                                </div>
+                              </div>
+
+                              {isLast && !isAdminView && !disabled && (
+                                <button
+                                  type="button"
+                                  onClick={() => addSubQuestionToMain(mqLabel)}
+                                  className="ml-2 rounded px-1 py-0.5 bg-slate-800 text-slate-200 text-xs"
+                                  title={`Add ${mqLabel}.${String.fromCharCode(
+                                    sqLabel.charCodeAt(0) + 1
+                                  )}`}
+                                >
+                                  +
+                                </button>
+                              )}
+                            </div>
+                          </th>
+                        );
+                      }
+
+                      // total column
+                      return (
+                        <th
+                          key={`${g.main}.Total-${idx}`}
+                          className="px-3 py-2 text-center font-medium"
+                        >
+                          <div className="text-slate-200 font-semibold">
+                            {g.main}.Total
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </>
+              );
+            })()}
           </thead>
 
           <tbody>
-            {students.map((s, rowIdx) => (
-              <tr
-                key={s.id}
-                className={
-                  "border-b border-slate-900" +
-                  (s.absent
-                    ? " bg-slate-900/60"
-                    : rowIdx % 2 === 0
-                    ? " bg-slate-950/40"
-                    : "")
-                }
-              >
-                <td className="px-3 py-2 font-mono text-slate-200">
-                  {s.rollNo}
-                </td>
+            {(() => {
+              // build groups again — must match header exactly (same logic)
+              const groups: Array<{
+                main: string;
+                type: "sub" | "total";
+                label?: string;
+                maxMarks?: number;
+                isLastSubForMain?: boolean;
+              }> = [];
+              mainQuestions.forEach((mq) => {
+                const subs = mq.subQuestions || [];
+                subs.forEach((sq, idx) => {
+                  groups.push({
+                    main: mq.label,
+                    type: "sub",
+                    label: sq.label,
+                    maxMarks: sq.maxMarks,
+                    isLastSubForMain: idx === subs.length - 1,
+                  });
+                });
+                groups.push({ main: mq.label, type: "total" });
+              });
 
-                <td className="px-3 py-2 text-center">
-                  <label className="inline-flex items-center gap-1 text-[11px] text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={!!s.absent}
-                      onChange={() => handleToggleAbsent(s.id)}
-                      className="h-3 w-3 rounded border-slate-600 text-rose-400"
-                      disabled={disabled}
-                    />
-                    <span>AB</span>
-                  </label>
-                </td>
+              return students.map((s, rowIdx) => (
+                <tr
+                  key={s.id}
+                  className={
+                    "border-b border-slate-900" +
+                    (s.absent
+                      ? " bg-slate-900/60"
+                      : rowIdx % 2 === 0
+                      ? " bg-slate-950/40"
+                      : "")
+                  }
+                >
+                  <td className="px-3 py-2 font-mono text-slate-200">
+                    {s.rollNo}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <label className="inline-flex items-center gap-1 text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={!!s.absent}
+                        onChange={() => handleToggleAbsent(s.id)}
+                        className="h-3 w-3 rounded border-slate-600 text-rose-400"
+                        disabled={disabled}
+                      />
+                      <span>AB</span>
+                    </label>
+                  </td>
 
-                {/* sub question inputs */}
-                {mainQuestions.flatMap((mq) =>
-                  mq.subQuestions.map((sq) => {
-                    const label = `${mq.label}.${sq.label}`;
-                    const key = marksKey(s.rollNo, label);
-                    const value = marks[key];
+                  {/* Render each column according to groups array */}
+                  {groups.map((g, colIdx) => {
+                    if (g.type === "sub") {
+                      const keyLabel = `${g.main}.${g.label}`;
+                      const key = marksKey(s.rollNo, keyLabel);
+                      const value = marks[key];
+                      const mqObj = mainQuestions.find(
+                        (m) => m.label === g.main
+                      )!;
+                      const sqObj = mqObj.subQuestions.find(
+                        (sq) => sq.label === g.label
+                      );
+                      const maxMarks = sqObj?.maxMarks ?? g.maxMarks ?? 0;
+
+                      return (
+                        <td
+                          key={`${s.id}-${keyLabel}-${colIdx}`}
+                          className="px-2 py-1 text-center"
+                        >
+                          <input
+                            type="number"
+                            step="0.25"
+                            min={0}
+                            max={maxMarks}
+                            value={
+                              value === "" || value === undefined ? "" : value
+                            }
+                            onChange={(e) =>
+                              handleSubMarkChange(
+                                s.rollNo,
+                                g.main,
+                                g.label!,
+                                maxMarks,
+                                e.target.value
+                              )
+                            }
+                            disabled={
+                              isAdminView ||
+                              !!s.absent ||
+                              isFrozen ||
+                              isFinalized
+                            }
+                            className={
+                              "w-14 rounded-md border px-1 py-1 text-center text-[11px] focus:outline-none " +
+                              (s.absent
+                                ? "border-slate-800 bg-slate-900 text-slate-500"
+                                : "border-slate-700 bg-slate-900 text-slate-100")
+                            }
+                          />
+                        </td>
+                      );
+                    }
+
+                    // main total column
+                    const mainQ = mainQuestions.find(
+                      (m) => m.label === g.main
+                    )!;
+                    const mainTotal = s.absent
+                      ? "AB"
+                      : mainTotalForStudent(s.rollNo, mainQ);
                     return (
-                      <td key={key} className="px-2 py-1 text-center">
-                        <input
-                          type="number"
-                          step="0.25"
-                          min={0}
-                          max={sq.maxMarks}
-                          value={
-                            value === "" || value === undefined ? "" : value
-                          }
-                          onChange={(e) =>
-                            handleSubMarkChange(
-                              s.rollNo,
-                              mq.label,
-                              sq.label,
-                              sq.maxMarks,
-                              e.target.value
-                            )
-                          }
-                          disabled={
-                            isAdminView || !!s.absent || isFrozen || isFinalized
-                          }
-                          className={
-                            "w-14 rounded-md border px-1 py-1 text-center text-[11px] focus:outline-none " +
-                            (s.absent
-                              ? "border-slate-800 bg-slate-900 text-slate-500"
-                              : "border-slate-700 bg-slate-900 text-slate-100")
-                          }
-                        />
+                      <td
+                        key={`${s.id}-${g.main}.total-${colIdx}`}
+                        className="px-3 py-2 text-center font-semibold text-slate-100"
+                      >
+                        {mainTotal}
                       </td>
                     );
-                  })
-                )}
+                  })}
 
-                {/* main totals */}
-                {mainQuestions.map((mq) => (
-                  <td
-                    key={`${s.rollNo}-${mq.label}.total`}
-                    className="px-3 py-2 text-center font-semibold text-slate-100"
-                  >
-                    {s.absent ? "AB" : mainTotalForStudent(s.rollNo, mq)}
+                  {/* Grand total */}
+                  <td className="px-3 py-2 text-center font-bold text-emerald-400">
+                    {s.absent ? "AB" : grandTotalForStudent(s.rollNo)}
                   </td>
-                ))}
-
-                <td className="px-3 py-2 text-center font-bold text-emerald-400">
-                  {s.absent ? "AB" : grandTotalForStudent(s.rollNo)}
-                </td>
-              </tr>
-            ))}
+                </tr>
+              ));
+            })()}
           </tbody>
         </table>
       </div>
@@ -1205,7 +1692,10 @@ function addSubQuestionToMain(mainLabel: string) {
                 !examId ||
                 examId <= 0 ||
                 disabled ||
-                (!isAdminView && !selectedSectionId)
+                (!isAdminView &&
+                  sections &&
+                  sections.length > 0 &&
+                  !selectedSectionId)
               }
               className={
                 "rounded-lg border border-slate-700 px-4 py-2 text-xs font-medium " +

@@ -2,6 +2,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { createExam, downloadExamCsv, getExams, type ExamType } from "../services/examService";
+import { deleteExam } from "../services/examService"; 
 
 type SubjectCard = {
   id: number; // UI id
@@ -152,15 +153,31 @@ async function handleExport(subject: SubjectCard) {
   }
 }
 
-  function handleDelete(id: number) {
-    const ok = window.confirm(
-      "Are you sure you want to delete this subject/exam from your dashboard?"
-    );
-    if (!ok) return;
 
+
+async function handleDelete(id: number) {
+  const ok = window.confirm(
+    "⚠️ Are you sure you want to delete this entire subject/exam?\n\n" +
+    "This will permanently delete:\n" +
+    "• All sections\n" +
+    "• All roll numbers\n" +
+    "• All marks\n" +
+    "• All questions\n\n" +
+    "This action CANNOT be undone."
+  );
+
+  if (!ok) return;
+
+  try {
+    await deleteExam(id);   // <-- backend DELETE call
     setSubjects((prev) => prev.filter((s) => s.id !== id));
-    // TODO: also call backend DELETE /exams/{id} when you add it
+    alert("Exam deleted successfully.");
+  } catch (err: any) {
+    console.error("Delete failed", err);
+    alert("Failed to delete exam. Check console for details.");
   }
+}
+
 
   return (
     <div className="space-y-8">

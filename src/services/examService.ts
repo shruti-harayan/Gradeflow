@@ -2,6 +2,11 @@
 import { api } from "./api";
 
 export type ExamType = "Internal" | "External" | "Practical" | "ATKT" | "Other";
+export type MainQuestionRule = {
+  mainLabel?: string;
+  minToCount: number;
+  outOf: number;
+};
 
 export interface ExamCreatePayload {
   subject_code: string;
@@ -13,6 +18,7 @@ export interface ExamCreatePayload {
   academic_year: string;
   created_by?: number | null;
   locked_by?: number | null; 
+  question_rules?: Record<string, MainQuestionRule> | null;
 }
 
 export interface ExamOut extends ExamCreatePayload {
@@ -27,16 +33,20 @@ export interface QuestionPayload {
 export interface StudentMarksPayload {
   roll_no: number;
   absent: boolean;
-  marks: Record<string, number | null>;
+  marks: Record<string, number | null | "">;
 }
 
 export interface SaveMarksPayload {
+  section_id?: number | null;
   subject_code: string;
   subject_name: string;
   exam_type: string;
   semester: number;
+  academic_year?: string | null;
   questions: QuestionPayload[];
   students: StudentMarksPayload[];
+  question_rules?: Record<string, MainQuestionRule> | null;
+  
 }
 
 export interface QuestionOut {
@@ -48,7 +58,7 @@ export interface QuestionOut {
 export interface StudentOut {
   id: number;
   roll_no: number;
-  name: string;
+  name?: string | null;
   absent: boolean;
 }
 
@@ -110,6 +120,10 @@ export async function unfinalizeExam(examId: number) {
   // call backend unfinalize endpoint
   const resp = await api.post(`/exams/${examId}/unfinalize`);
   return resp.data;
+}
+
+export async function deleteExam(examId: number) {
+  return api.delete(`/exams/${examId}`);
 }
 
 export async function downloadExamCsv(examId: number, filename?: string) {

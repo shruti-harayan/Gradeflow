@@ -1,5 +1,6 @@
 import React, { useState, type FormEvent } from "react";
 import { api } from "../services/api";
+import { useSearchParams } from "react-router-dom";
 
 // Re-use the same Section interface used in MarksEntry.tsx
 export interface Section {
@@ -14,18 +15,37 @@ interface CreateSectionFormProps {
   examId: number;
   onCreated: (section: Section) => void;
   onCancel?: () => void;
+  isAdminView?: boolean;
 }
 
-const CreateSectionForm: React.FC<CreateSectionFormProps> = ({ examId, onCreated, onCancel }) => {
+const CreateSectionForm: React.FC<CreateSectionFormProps> = ({
+  examId,
+  onCreated,
+  onCancel,
+  isAdminView: isAdminViewProp,
+}) => {
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState<string>("");
   const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Use prop when provided; otherwise fall back to query param
+  const isAdminView =
+    typeof isAdminViewProp === "boolean"
+      ? isAdminViewProp
+      : searchParams.get("adminView") === "1";
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    // Block admins from submitting even if they try (Enter key / programmatic)
+    if (isAdminView) {
+      setError("Admins cannot create sections.");
+      return;
+    }
 
     const rollStart = Number(start);
     const rollEnd = Number(end);
@@ -56,7 +76,10 @@ const CreateSectionForm: React.FC<CreateSectionFormProps> = ({ examId, onCreated
       setStart("");
       setEnd("");
     } catch (err: any) {
-      setError(err?.response?.data?.detail || String(err?.message || "Failed to create section"));
+      setError(
+        err?.response?.data?.detail ||
+          String(err?.message || "Failed to create section")
+      );
     } finally {
       setLoading(false);
     }
@@ -65,7 +88,9 @@ const CreateSectionForm: React.FC<CreateSectionFormProps> = ({ examId, onCreated
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <div>
-        <label className="text-xs text-slate-300 block">Section name (optional)</label>
+        <label className="text-xs text-slate-300 block">
+          Section name (optional)
+        </label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -116,10 +141,15 @@ const CreateSectionForm: React.FC<CreateSectionFormProps> = ({ examId, onCreated
 
         <button
           type="submit"
-          disabled={loading}
-          className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+          disabled={isAdminView || loading}
+          title={isAdminView ? "Admins cannot create sections" : undefined}
+          className={`rounded-md px-3 py-1.5 text-xs font-semibold text-white ${
+            isAdminView || loading
+              ? "bg-slate-700 cursor-not-allowed opacity-60"
+              : "bg-emerald-600 hover:bg-emerald-700"
+          }`}
         >
-          {loading ? "Creating..." : "Create Section"}
+          {loading ? "Creating…" : "Create Section"}
         </button>
       </div>
     </form>
