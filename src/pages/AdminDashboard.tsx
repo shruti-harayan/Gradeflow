@@ -2,7 +2,7 @@
 import React from "react";
 import {
   getExams,
-  downloadExamCsv,
+  downloadMergedExamCsv,
   type ExamOut,
   finalizeExam,
   unfinalizeExam,
@@ -12,12 +12,15 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 
+
+
 export default function AdminDashboard() {
   const [exams, setExams] = React.useState<ExamOut[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
+  
 
   const [selectedTeacherId, setSelectedTeacherId] = React.useState<
     number | null
@@ -78,7 +81,29 @@ export default function AdminDashboard() {
     return () => document.removeEventListener("submit", onSubmit, true);
   }, []);
 
-  // Replace the existing loadExams with this cleaned-up version
+  function groupExamsForAdmin(exams: ExamOut[]) {
+    const map = new Map<string, ExamOut[]>();
+
+    for (const e of exams) {
+      const key = [
+        e.subject_code,
+        e.subject_name,
+        e.exam_type,
+        e.semester,
+        e.academic_year,
+      ].join("|");
+
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    }
+
+    return Array.from(map.entries()).map(([key, exams]) => ({
+      key,
+      exams, // ALL teacher exams under this subject
+      representative: exams[0], // used for display text
+    }));
+  }
+
   async function loadExams(filters?: {
     subject?: string;
     academic_year?: string;
@@ -246,21 +271,32 @@ export default function AdminDashboard() {
     setModalOpen(true);
   }
 
-  // keep your safe filename builder & download logic
-  async function handleDownload(e: ExamOut) {
-    const safe = (s: string) =>
-      s.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\.]/g, "");
-    const filename = `${safe(e.subject_code)}_${safe(e.subject_name)}_${safe(
-      e.exam_type
-    )}_Sem${e.semester}_marks.csv`;
-    try {
-      await downloadExamCsv(e.id, filename);
-      showToast("CSV download started.");
-    } catch (err) {
-      console.error("Download failed", err);
-      showToast("Failed to download CSV.");
-    }
+  async function handleDownloadMerged(g: {
+  representative: ExamOut;
+  exams: ExamOut[];
+}) {
+  const safe = (s: string) =>
+    s.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\.]/g, "");
+
+  const r = g.representative;
+
+  const filename =
+    `${safe(r.subject_code)}_${safe(r.subject_name)}_` +
+    `${safe(r.exam_type)}_Sem${r.semester}_` +
+    `${safe(r.academic_year)}_MERGED.csv`;
+
+  try {
+    await downloadMergedExamCsv(
+      g.exams.map((e) => e.id),
+      filename
+    );
+    showToast("Merged CSV downloaded.");
+  } catch (err) {
+    console.error("Merged download failed", err);
+    showToast("Failed to download merged CSV.");
   }
+}
+
 
   // View marks navigates to marks-entry page (adminView=1)
   function handleViewMarks(e: ExamOut) {
@@ -418,7 +454,9 @@ export default function AdminDashboard() {
                   type="button"
                   onClick={() => setShowCurrentPwd((prev) => !prev)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
-                  aria-label={showCurrentPwd ? "Hide password" : "Show password"}
+                  aria-label={
+                    showCurrentPwd ? "Hide password" : "Show password"
+                  }
                 >
                   {showCurrentPwd ? "🙈" : "👁️"}
                 </button>
@@ -448,7 +486,9 @@ export default function AdminDashboard() {
 
             {/* Confirm password */}
             <div className="mt-3">
-              <label className="text-xs text-slate-400">Confirm new password</label>
+              <label className="text-xs text-slate-400">
+                Confirm new password
+              </label>
               <div className="relative">
                 <input
                   type={showConfirmPwd ? "text" : "password"}
@@ -460,7 +500,9 @@ export default function AdminDashboard() {
                   type="button"
                   onClick={() => setShowConfirmPwd((prev) => !prev)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
-                  aria-label={showConfirmPwd ? "Hide password" : "Show password"}
+                  aria-label={
+                    showConfirmPwd ? "Hide password" : "Show password"
+                  }
                 >
                   {showConfirmPwd ? "🙈" : "👁️"}
                 </button>
@@ -604,163 +646,168 @@ export default function AdminDashboard() {
           )}
 
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-2">
-            {exams.map((e) => (
-              <div
-                key={e.id}
-                className={`rounded-xl border p-4 shadow-md transition hover:shadow-lg ${
-                  e.is_locked
-                    ? "border-emerald-600 bg-emerald-950/5"
-                    : "border-slate-700 bg-slate-900"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-white font-semibold text-sm">
-                      {e.subject_code} — {e.subject_name}
-                    </h3>
-                    <p className="text-[11px] text-slate-400">
-                      Exam: {e.exam_type} • Sem {e.semester}
-                    </p>
-                    {e.academic_year && (
+            {groupExamsForAdmin(exams).map((g) => {
+              const e = g.representative;
+            
+              return (
+                <div
+                  key={g.key}
+                  className={`rounded-xl border p-4 shadow-md transition hover:shadow-lg ${
+                    e.is_locked
+                      ? "border-emerald-600 bg-emerald-950/5"
+                      : "border-slate-700 bg-slate-900"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-white font-semibold text-sm">
+                        {e.subject_code} — {e.subject_name}
+                      </h3>
                       <p className="text-[11px] text-slate-400">
-                        Academic Year: {e.academic_year}
+                        Exam: {e.exam_type} • Sem {e.semester}
                       </p>
-                    )}
+                      {e.academic_year && (
+                        <p className="text-[11px] text-slate-400">
+                          Academic Year: {e.academic_year}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {e.is_locked ? (
+                        <div className="flex items-center gap-1 rounded px-2 py-1 bg-emerald-700 text-emerald-100 text-xs">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            className="inline-block"
+                          >
+                            <path
+                              fill="currentColor"
+                              d="M12 17a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm6-7h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zM9 7a3 3 0 0 1 6 0v3H9V7z"
+                            />
+                          </svg>
+                          <span>Locked</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 rounded px-2 py-1 bg-slate-700 text-slate-100 text-xs">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            className="inline-block"
+                          >
+                            <path
+                              fill="currentColor"
+                              d="M12 17a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm6-7h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zM9 7a3 3 0 0 1 6 0v3H9V7z"
+                            />
+                          </svg>
+                          <span>Editable</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {e.is_locked ? (
-                      <div className="flex items-center gap-1 rounded px-2 py-1 bg-emerald-700 text-emerald-100 text-xs">
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          className="inline-block"
-                        >
+                  {/* Locked-by label */}
+                  {e.is_locked && (
+                    <p className="mt-1 text-[10px] text-slate-400 italic">
+                      Locked by:{" "}
+                      <span className="font-semibold text-slate-200">
+                        {(() => {
+                          // Normalize values to numbers (or null) to avoid string/number mismatch
+                          const lockedBy =
+                            e.locked_by == null ? null : Number(e.locked_by);
+                          const createdBy =
+                            e.created_by == null ? null : Number(e.created_by);
+                          // If both present and equal -> teacher locked it, otherwise admin
+                          if (
+                            lockedBy !== null &&
+                            createdBy !== null &&
+                            lockedBy === createdBy
+                          ) {
+                            return "Teacher";
+                          }
+                          return "Admin";
+                        })()}
+                      </span>
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2 items-center">
+                    <button
+                      onClick={() =>
+                        openToggleModal(e, e.is_locked ? "unlock" : "lock")
+                      }
+                      title={
+                        e.is_locked
+                          ? "Unlock exam (allow teacher to edit)"
+                          : "Final-submit (lock) exam"
+                      }
+                      className={`${
+                        e.is_locked
+                          ? "bg-emerald-600 hover:bg-emerald-700"
+                          : "bg-red-600 hover:bg-red-700"
+                      } flex items-center gap-2 rounded px-3 py-2 text-xs font-semibold text-white`}
+                    >
+                      {e.is_locked ? (
+                        <svg width="14" height="14" viewBox="0 0 24 24">
                           <path
                             fill="currentColor"
-                            d="M12 17a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm6-7h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zM9 7a3 3 0 0 1 6 0v3H9V7z"
+                            d="M12 17a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM6 10V7a6 6 0 1 1 12 0v3h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h1zM9 10V7a3 3 0 1 1 6 0v3H9z"
                           />
                         </svg>
-                        <span>Locked</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1 rounded px-2 py-1 bg-slate-700 text-slate-100 text-xs">
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          className="inline-block"
-                        >
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24">
                           <path
                             fill="currentColor"
-                            d="M12 17a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm6-7h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zM9 7a3 3 0 0 1 6 0v3H9V7z"
+                            d="M12 17a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM6 10V7a6 6 0 1 1 12 0v3h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h1zM9 10V7a3 3 0 1 1 6 0v3H9z"
                           />
                         </svg>
-                        <span>Editable</span>
-                      </div>
-                    )}
+                      )}
+                      <span>{e.is_locked ? "Unlock" : "Final Submit"}</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleViewMarks(e)}
+                      className="rounded px-3 py-2 text-xs bg-indigo-500 text-white hover:bg-indigo-600"
+                      title="View marks (admin)"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        className="inline-block mr-1"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M12 6c-4.418 0-8 2.686-8 6s3.582 6 8 6 8-2.686 8-6-3.582-6-8-6zm0 10c-2.206 0-4-1.567-4-4s1.794-4 4-4 4 1.567 4 4-1.794 4-4 4zM12 9a3 3 0 100 6 3 3 0 000-6z"
+                        />
+                      </svg>
+                      View Marks
+                    </button>
+
+                    <button
+                      onClick={ () => {handleDownloadMerged(g)}}
+                      title="Download merged CSV for all teachers"
+                      className="rounded px-3 py-2 text-xs border border-slate-700 text-slate-100 hover:bg-slate-800"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        className="inline-block mr-1"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M5 20h14v-2H5v2zm7-18L5.33 9h3.67v6h6V9h3.67L12 2z"
+                        />
+                      </svg>
+                      Download CSV
+                    </button>
                   </div>
                 </div>
-
-                {/* Locked-by label */}
-                {e.is_locked && (
-                  <p className="mt-1 text-[10px] text-slate-400 italic">
-                    Locked by:{" "}
-                    <span className="font-semibold text-slate-200">
-                      {(() => {
-                        // Normalize values to numbers (or null) to avoid string/number mismatch
-                        const lockedBy =
-                          e.locked_by == null ? null : Number(e.locked_by);
-                        const createdBy =
-                          e.created_by == null ? null : Number(e.created_by);
-                        // If both present and equal -> teacher locked it, otherwise admin
-                        if (
-                          lockedBy !== null &&
-                          createdBy !== null &&
-                          lockedBy === createdBy
-                        ) {
-                          return "Teacher";
-                        }
-                        return "Admin";
-                      })()}
-                    </span>
-                  </p>
-                )}
-
-                <div className="mt-4 flex flex-wrap gap-2 items-center">
-                  <button
-                    onClick={() =>
-                      openToggleModal(e, e.is_locked ? "unlock" : "lock")
-                    }
-                    title={
-                      e.is_locked
-                        ? "Unlock exam (allow teacher to edit)"
-                        : "Final-submit (lock) exam"
-                    }
-                    className={`${
-                      e.is_locked
-                        ? "bg-emerald-600 hover:bg-emerald-700"
-                        : "bg-red-600 hover:bg-red-700"
-                    } flex items-center gap-2 rounded px-3 py-2 text-xs font-semibold text-white`}
-                  >
-                    {e.is_locked ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24">
-                        <path
-                          fill="currentColor"
-                          d="M12 17a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM6 10V7a6 6 0 1 1 12 0v3h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h1zM9 10V7a3 3 0 1 1 6 0v3H9z"
-                        />
-                      </svg>
-                    ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24">
-                        <path
-                          fill="currentColor"
-                          d="M12 17a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM6 10V7a6 6 0 1 1 12 0v3h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h1zM9 10V7a3 3 0 1 1 6 0v3H9z"
-                        />
-                      </svg>
-                    )}
-                    <span>{e.is_locked ? "Unlock" : "Final Submit"}</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleViewMarks(e)}
-                    className="rounded px-3 py-2 text-xs bg-indigo-500 text-white hover:bg-indigo-600"
-                    title="View marks (admin)"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      className="inline-block mr-1"
-                    >
-                      <path
-                        fill="currentColor"
-                        d="M12 6c-4.418 0-8 2.686-8 6s3.582 6 8 6 8-2.686 8-6-3.582-6-8-6zm0 10c-2.206 0-4-1.567-4-4s1.794-4 4-4 4 1.567 4 4-1.794 4-4 4zM12 9a3 3 0 100 6 3 3 0 000-6z"
-                      />
-                    </svg>
-                    View Marks
-                  </button>
-
-                  <button
-                    onClick={() => handleDownload(e)}
-                    className="rounded px-3 py-2 text-xs border border-slate-700 text-slate-100 hover:bg-slate-800"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      className="inline-block mr-1"
-                    >
-                      <path
-                        fill="currentColor"
-                        d="M5 20h14v-2H5v2zm7-18L5.33 9h3.67v6h6V9h3.67L12 2z"
-                      />
-                    </svg>
-                    Download CSV
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {exams.length === 0 && !loading && (

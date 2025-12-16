@@ -1,3 +1,4 @@
+import hashlib
 import requests,secrets
 from fastapi import APIRouter, Body, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
@@ -26,19 +27,31 @@ class ForgotPasswordIn(BaseModel):
 def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if not user:
-        raise HTTPException(status_code=400, detail="This email is not registered.")
+        raise HTTPException(status_code=404, detail="This email is not registered.")
     if user.role == "teacher":
-        raise HTTPException(status_code=400, detail="This account is registered as teacher so cannot reset password.")
+        raise HTTPException(status_code=403, detail="This account is registered as teacher so cannot reset password.")
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Not allowed")
 
-    token = secrets.token_urlsafe(32)
+# Remove old reset tokens for this user
+    db.query(PasswordReset).filter(PasswordReset.user_id == user.id).delete()
+    db.commit()
+
+    # Generate secure token
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
     expiry = datetime.now(timezone.utc) + timedelta(hours=1)
-    row = PasswordReset(user_id=user.id, token=token, expires_at=expiry)
+
+    row = PasswordReset(
+        user_id=user.id,
+        token=token_hash,
+        expires_at=expiry
+    )
     db.add(row)
     db.commit()
 
-    reset_link = f"{APP_BASE_URL.rstrip('/')}/reset-password?token={token}"
+    reset_link = f"{APP_BASE_URL.rstrip('/')}/reset-password?token={raw_token}"
 
     # Plain-text and HTML versions
     plain = f"""Hello,
@@ -86,36 +99,71 @@ class ResetPasswordIn(BaseModel):
     new_password: str
 
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
-    row = db.query(PasswordReset).filter(PasswordReset.token == payload.token).first()
-   
-# Normalize row.expires_at to be timezone-aware (assume UTC if naive)
+def reset_password(
+    payload: ResetPasswordIn,
+    db: Session = Depends(get_db)
+):
+    token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
+
+    row = (
+        db.query(PasswordReset)
+        .filter(PasswordReset.token == token_hash)
+        .first()
+    )
+
+    if not row:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    # 2. Normalize expires_at to UTC
     expires_at = row.expires_at
     if expires_at is None:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
 
-    # If DB returned a naive datetime (no tzinfo), assume UTC
-    if getattr(expires_at, "tzinfo", None) is None:
+    if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
-# Compare with an aware "now"
     now_utc = datetime.now(timezone.utc)
     if expires_at < now_utc:
+        # cleanup expired token
+        db.delete(row)
+        db.commit()
         raise HTTPException(status_code=400, detail="Token expired")
 
+    # 3. Fetch user
     user = db.query(User).filter(User.id == row.user_id).first()
     if not user:
-        raise HTTPException(400, "User not found")
+        db.delete(row)
+        db.commit()
+        raise HTTPException(status_code=400, detail="User not found")
 
+    # 4. ADMIN-ONLY restriction 
+    if user.role != "admin":
+        db.delete(row)
+        db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="This account is registered as teacher so cannot reset password"
+        )
+
+    # 5. Validate password
     if len(payload.new_password) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 6 characters"
+        )
 
-    user.hashed_password =hash_password(payload.new_password)
-    db.delete(row)
+    # 6. Update password
+    user.hashed_password = hash_password(payload.new_password)
+    db.add(user)
+
+    # 7. Delete ALL reset tokens for this user (security best practice)
+    db.query(PasswordReset).filter(
+        PasswordReset.user_id == user.id
+    ).delete()
+
     db.commit()
 
-    return {"detail": "Password successfully reset"}
-
+    return {"detail": "Password reset successful"}
 
 class AdminCreateTeacher(BaseModel):
     name: str

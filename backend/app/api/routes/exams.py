@@ -1,6 +1,7 @@
 # backend/app/api/routes/exams.py
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.schemas.exam_schema import ExamCreate, ExamOut, ExamUpdate, MarksSaveRequest,ExamMarksOut
+from sqlalchemy import UniqueConstraint
+from app.schemas.exam_schema import AdminCombinedMarksOut, ExamCreate, ExamMarksOut, ExamOut,ExamSectionCreate, ExamSectionOut, ExamUpdate,MarksSaveRequest
 from app.models.exam import Exam, Question, Student, Mark,ExamSection             
 from sqlalchemy.orm import Session
 from app.database import get_db,engine
@@ -12,7 +13,7 @@ from app.api.dependencies import admin_required,get_current_user
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.exam import Exam, ExamSection
-from app.schemas.exam_schema import ExamSectionCreate, ExamSectionOut,MarksSaveRequest
+
 
 router = APIRouter()
 
@@ -60,18 +61,35 @@ def list_sections_for_exam(exam_id: int, db: Session = Depends(get_db), current_
 
 
 @router.post("/{exam_id}/finalize")
-def finalize_exam(exam_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),):
+def finalize_exam(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if getattr(current_user, "role", None) != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
 
-    exam = db.query(Exam).filter(Exam.id == exam_id).first()
-    if not exam:
+    ref_exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not ref_exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    exam.is_locked = True
-    exam.locked_by = current_user.id 
-    db.add(exam)
+    #  GLOBAL LOCK: lock all shared exams
+    db.query(Exam).filter(
+        Exam.subject_code == ref_exam.subject_code,
+        Exam.exam_type == ref_exam.exam_type,
+        Exam.semester == ref_exam.semester,
+        Exam.academic_year == ref_exam.academic_year,
+    ).update(
+        {
+            "is_locked": True,
+            "locked_by": current_user.id,
+        },
+        synchronize_session=False,
+    )
+
     db.commit()
-    db.refresh(exam)
-    return {"status": "ok", "exam": exam}
+
+    return {"status": "ok", "message": "Exam finalized globally"}
 
 
 @router.post("/{exam_id}/unfinalize", dependencies=[Depends(admin_required)])
@@ -80,49 +98,57 @@ def unfinalize_exam(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # require admin
     if getattr(current_user, "role", None) != "admin":
         raise HTTPException(status_code=403, detail="Admin privileges required")
 
-    exam = db.query(Exam).filter(Exam.id == exam_id).first()
-    if not exam:
+    ref_exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not ref_exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    exam.is_locked = False
-    exam.locked_by = None  
-    db.add(exam)
+    #  GLOBAL UNLOCK: unlock all shared exams
+    db.query(Exam).filter(
+        Exam.subject_code == ref_exam.subject_code,
+        Exam.exam_type == ref_exam.exam_type,
+        Exam.semester == ref_exam.semester,
+        Exam.academic_year == ref_exam.academic_year,
+    ).update(
+        {
+            "is_locked": False,
+            "locked_by": None,
+        },
+        synchronize_session=False,
+    )
+
     db.commit()
-    db.refresh(exam)
-    return {"status": "ok", "exam": exam}
+
+    return {"status": "ok", "message": "Exam unfinalized globally"}
 
 
 @router.get("/", response_model=List[ExamOut])
 def list_exams(
     subject_name: Optional[str] = Query(None),
     academic_year: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
     creator_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-
     q = db.query(Exam)
 
-    # Apply server-side filters if provided
+    # ---------- Role-based visibility ----------
+    if current_user.role != "admin":
+        # Teachers can see ONLY their own exams
+        q = q.filter(Exam.created_by == current_user.id)
+    else:
+        # Admins: optionally filter by creator_id
+        if creator_id is not None:
+            q = q.filter(Exam.created_by == creator_id)
+
+    # ---------- Optional filters ----------
     if subject_name:
-        # case-insensitive partial match
         q = q.filter(Exam.subject_name.ilike(f"%{subject_name.strip()}%"))
+
     if academic_year:
         q = q.filter(Exam.academic_year.ilike(f"%{academic_year.strip()}%"))
-# If an admin requested a specific creator_id, apply that
-    if creator_id is not None:
-        # only allow admins to query arbitrary creator_id
-        if getattr(current_user, "role", None) != "admin":
-            raise HTTPException(status_code=403, detail="Admin privileges required")
-        q = q.filter(Exam.created_by == creator_id)
-    else:
-        # if no creator_id provided, non-admins see only their own exams
-        if getattr(current_user, "role", None) != "admin":
-            q = q.filter(Exam.created_by == current_user.id)
 
     exams = q.order_by(Exam.created_at.desc()).all()
     return exams
@@ -134,23 +160,26 @@ def create_exam(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # normalize fields for matching: subject_code/exam_type/academic_year as-is; subject_name case-insensitive
-    existing = (
-        db.query(Exam)
-        .filter(
-            Exam.subject_code == exam_in.subject_code,
-            Exam.exam_type == exam_in.exam_type,
-            Exam.semester == exam_in.semester,
-            Exam.academic_year == exam_in.academic_year,
-            Exam.subject_name.ilike(exam_in.subject_name),
-        )
-        .first()
-    )
+    existing = db.query(Exam).filter(
+    Exam.subject_code == exam_in.subject_code,
+    Exam.exam_type == exam_in.exam_type,
+    Exam.semester == exam_in.semester,
+    Exam.academic_year == exam_in.academic_year,
+    Exam.created_by == current_user.id,   
+).first()
 
     if existing:
-        # Optionally: if the existing exam has no creator (shouldn't happen normally) set created_by
-        # but we do NOT overwrite existing.created_by to avoid changing ownership.
-        return existing
+        raise HTTPException(
+            status_code=400,
+            detail="You have already created this exam."
+        )
+
+    logger.info(
+    "Create exam called by user_id=%s email=%s",
+    current_user.id,
+    current_user.email,
+)
+
 
     exam = Exam(
         subject_code=exam_in.subject_code,
@@ -158,14 +187,24 @@ def create_exam(
         exam_type=exam_in.exam_type,
         semester=exam_in.semester,
         created_by=current_user.id,
-        academic_year=exam_in.academic_year
+        academic_year=exam_in.academic_year,
+        is_locked=False,
     )
     db.add(exam)
     db.commit()
     db.refresh(exam)
     return exam
 
-
+__table_args__ = (
+    UniqueConstraint(
+        "subject_code",
+        "exam_type",
+        "semester",
+        "academic_year",
+        "created_by",
+        name="uq_exam_per_teacher",
+    ),
+)
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -176,11 +215,7 @@ def save_marks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Save marks for an exam. section_id is optional; when absent, marks are saved with section_id = NULL.
-    Also persists question_rules if provided in payload.
-    """
-
+   
     logger.info("save_marks called for exam_id=%s by user=%s", exam_id, getattr(current_user, "id", None))
 
     # basic exam existence check
@@ -439,9 +474,149 @@ def delete_exam(
 
     return {"status": "success", "message": "Exam deleted successfully"}
 
+@router.patch("/{exam_id}", response_model=ExamOut)
+def update_exam(
+    exam_id: int,
+    payload: ExamUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
 
-@router.get("/{exam_id}/export")
-def export_exam_csv(
+    # permission: only admin or exam creator can update metadata
+    if current_user.role != "admin" and exam.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    if payload.subject_code is not None:
+        exam.subject_code = payload.subject_code
+    if payload.subject_name is not None:
+        exam.subject_name = payload.subject_name
+    # ... other fields as needed ...
+
+    if payload.question_rules is not None:
+        # store as JSON string in text column
+        exam.question_rules = json.dumps(payload.question_rules)
+
+    db.add(exam)
+    db.commit()
+    db.refresh(exam)
+    # return parsed rules as dict in pydantic model
+    return exam
+
+@router.get("/admin/combined-marks", response_model=AdminCombinedMarksOut
+)
+def get_admin_combined_marks(
+    subject_code: str,
+    exam_type: str,
+    semester: int,
+    academic_year: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    # 1️ Fetch all related exams (shared logical exam)
+    exams = (
+        db.query(Exam)
+        .filter(
+            Exam.subject_code == subject_code,
+            Exam.exam_type == exam_type,
+            Exam.semester == semester,
+            Exam.academic_year == academic_year,
+        )
+        .all()
+    )
+
+    if not exams:
+        raise HTTPException(status_code=404, detail="No exams found")
+
+    exam_ids = [e.id for e in exams]
+    ref_exam = exams[0]  # metadata reference
+
+    # 2️ Questions (merged, unique by label)
+    questions = (
+        db.query(Question)
+        .filter(Question.exam_id.in_(exam_ids))
+        .order_by(Question.label.asc())
+        .all()
+    )
+
+    seen = {}
+    unique_questions = []
+    for q in questions:
+        if q.label not in seen:
+            seen[q.label] = True
+            unique_questions.append(q)
+
+    # 3️ Students (merged, unique by roll_no)
+    # collect unique roll numbers across all exams
+    rolls = (
+        db.query(Student.roll_no)
+        .filter(Student.exam_id.in_(exam_ids))
+        .distinct()
+        .order_by(Student.roll_no.asc())
+        .all()
+    )
+
+    merged_students = [
+        {
+            "id": roll.roll_no,   # synthetic id
+            "roll_no": roll.roll_no,
+            "absent": False,
+        }
+        for roll in rolls
+    ]
+
+    # 4️ Marks (ALL)
+    marks = (
+        db.query(Mark)
+        .filter(Mark.exam_id.in_(exam_ids))
+        .all()
+    )
+
+    # map student_id -> roll_no
+    student_roll_by_id = {
+        s.id: s.roll_no
+        for s in db.query(Student).filter(Student.exam_id.in_(exam_ids)).all()
+    }
+        
+    # map (exam_id, question_id) -> label
+    question_label_by_key = {
+        (q.exam_id, q.id): q.label
+        for q in db.query(Question)
+            .filter(Question.exam_id.in_(exam_ids))
+            .all()
+    }
+    marks_out = []
+
+    for m in marks:
+        roll_no = student_roll_by_id.get(m.student_id)
+        if roll_no is None:
+            continue
+
+        q_label = question_label_by_key.get((m.exam_id, m.question_id))
+        if not q_label:
+            continue
+
+        marks_out.append({
+            "roll_no": roll_no,
+            "question_label": q_label,
+            "marks": m.marks,
+        })
+
+    return {
+        "exam": ref_exam,
+        "questions": unique_questions,
+        "students": merged_students,
+        "marks": marks_out,
+    }
+
+
+
+def export_single_exam_csv(
     exam_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -591,12 +766,205 @@ def export_exam_csv(
     return response
 
 
+@router.post("/export-merged")
+def export_merged_exam_csv(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    exam_ids = payload.get("exam_ids")
+    if not exam_ids or not isinstance(exam_ids, list):
+        raise HTTPException(status_code=422, detail="exam_ids list required")
+
+    exams = db.query(Exam).filter(Exam.id.in_(exam_ids)).all()
+    if not exams:
+        raise HTTPException(status_code=404, detail="No exams found")
+
+    ref = exams[0]  # metadata reference
+
+    # -------------------------------
+    # QUESTIONS (merged)
+    # -------------------------------
+    questions = (
+        db.query(Question)
+        .filter(Question.exam_id.in_(exam_ids))
+        .order_by(Question.label.asc())
+        .all()
+    )
+
+    # unique labels, ordered
+    q_labels = sorted({q.label for q in questions})
 
 
-@router.patch("/{exam_id}", response_model=ExamOut)
-def update_exam(
+    # Group by main question
+    main_order: list[str] = []
+    subs_by_main: dict[str, list[str]] = {}
+
+    for lbl in q_labels:
+        main = lbl.split(".", 1)[0]
+        if main not in subs_by_main:
+            subs_by_main[main] = set()
+            main_order.append(main)
+        subs_by_main[main].add(lbl)
+
+    # convert sets → sorted lists (stable CSV order)
+    subs_by_main = {
+        k: sorted(v)
+        for k, v in subs_by_main.items()
+    }
+
+
+    # -------------------------------
+    # STUDENTS + MARKS
+    # -------------------------------
+    students = (
+        db.query(Student)
+        .filter(Student.exam_id.in_(exam_ids))
+        .order_by(Student.roll_no.asc())
+        .all()
+    )
+
+    marks = (
+        db.query(Mark)
+        .filter(Mark.exam_id.in_(exam_ids))
+        .all()
+    )
+
+    id_to_label = {q.id: q.label for q in questions}
+
+    # (student_id, label) → marks
+    marks_map: dict[tuple[int, str], float | None] = {}
+    for m in marks:
+        lbl = id_to_label.get(m.question_id)
+        if lbl:
+            marks_map[(m.student_id, lbl)] = (
+                None if m.marks is None else float(m.marks)
+            )
+
+    # -------------------------------
+    # SECTIONS
+    # -------------------------------
+    sections = (
+        db.query(ExamSection)
+        .filter(ExamSection.exam_id.in_(exam_ids))
+        .all()
+    )
+    section_name_by_id = {s.id: s.section_name or "" for s in sections}
+
+    student_section: dict[int, str] = {}
+    for m in marks:
+        if m.section_id:
+            student_section[m.student_id] = section_name_by_id.get(m.section_id, "")
+
+    # -------------------------------
+    # QUESTION RULES (merge)
+    # -------------------------------
+    question_rules: dict[str, Any] = {}
+
+    for e in exams:
+        raw = e.question_rules
+        try:
+            rules = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except Exception:
+            rules = {}
+
+        for k, v in rules.items():
+            if k not in question_rules:
+                question_rules[k] = v
+
+    def get_rule_min(rule):
+        if not isinstance(rule, dict):
+            return None
+        for k in ("minToCount", "min", "min_to_count"):
+            if k in rule:
+                try:
+                    return int(rule[k])
+                except Exception:
+                    pass
+        return None
+
+    # -------------------------------
+    # CSV OUTPUT
+    # -------------------------------
+    out = io.StringIO()
+    writer = csv.writer(out)
+
+    writer.writerow([f"Academic Year: {ref.academic_year}"])
+    writer.writerow([f"Subject: {ref.subject_name} ({ref.subject_code})"])
+    writer.writerow([f"Semester: {ref.semester}"])
+    writer.writerow([f"Exam Type: {ref.exam_type}"])
+    writer.writerow([])
+
+    header = ["Roll No", "Section"]
+    for main in main_order:
+        for sub in subs_by_main[main]:
+            header.append(sub)
+        header.append(f"Total_{main}")
+    header.append("Grand_Total")
+    writer.writerow(header)
+
+    # -------------------------------
+    # DATA ROWS
+    # -------------------------------
+    for s in students:
+        row = [s.roll_no, student_section.get(s.id, "")]
+        grand_total = 0.0
+
+        for main in main_order:
+            subs = subs_by_main[main]
+            values: list[float] = []
+
+            for lbl in subs:
+                v = marks_map.get((s.id, lbl))
+                row.append("" if v is None else v)
+                if v is not None:
+                    values.append(v)
+
+            rule = question_rules.get(main)
+            N = get_rule_min(rule)
+
+            if N:
+                values.sort(reverse=True)
+                main_total = sum(values[:N])
+            else:
+                main_total = sum(values)
+
+            if isinstance(main_total, int) or main_total == int(main_total):
+                row.append(int(main_total))
+            else:
+                row.append(round(float(main_total), 2))
+
+            grand_total += main_total
+
+        #  GRAND TOTAL 
+        if isinstance(grand_total, int) or grand_total == int(grand_total):
+            row.append(int(grand_total))
+        else:
+            row.append(round(float(grand_total), 2))
+
+        writer.writerow(row)
+
+
+    out.seek(0)
+
+    filename = (
+        f"{ref.subject_code}_{ref.subject_name}_"
+        f"{ref.exam_type}_Sem{ref.semester}_{ref.academic_year}_MERGED.csv"
+    )
+
+    response = StreamingResponse(
+        iter([out.getvalue().encode("utf-8")]),
+        media_type="text/csv",
+    )
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+@router.get("/{exam_id}/export")
+def export_exam_csv(
     exam_id: int,
-    payload: ExamUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -604,22 +972,30 @@ def update_exam(
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    # permission: only admin or exam creator can update metadata
-    if current_user.role != "admin" and exam.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Not allowed")
+    #  ADMIN → MERGED EXPORT
+    if current_user.role == "admin":
+        exams = (
+            db.query(Exam)
+            .filter(
+                Exam.subject_code == exam.subject_code,
+                Exam.exam_type == exam.exam_type,
+                Exam.semester == exam.semester,
+                Exam.academic_year == exam.academic_year,
+            )
+            .all()
+        )
 
-    if payload.subject_code is not None:
-        exam.subject_code = payload.subject_code
-    if payload.subject_name is not None:
-        exam.subject_name = payload.subject_name
-    # ... other fields as needed ...
+        exam_ids = [e.id for e in exams]
 
-    if payload.question_rules is not None:
-        # store as JSON string in text column
-        exam.question_rules = json.dumps(payload.question_rules)
+        return export_merged_exam_csv(
+            payload={"exam_ids": exam_ids},
+            db=db,
+            current_user=current_user,
+        )
 
-    db.add(exam)
-    db.commit()
-    db.refresh(exam)
-    # return parsed rules as dict in pydantic model
-    return exam
+    #  TEACHER → SINGLE EXAM EXPORT
+    return export_single_exam_csv(
+        exam_id=exam_id,
+        db=db,
+        current_user=current_user,
+    )

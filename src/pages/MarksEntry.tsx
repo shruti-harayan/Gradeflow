@@ -40,7 +40,7 @@ type MainQuestion = {
 type MainQuestionRule = {
   mainLabel: string; // "Q1"
   minToCount: number; // e.g. 3
-  outOf: number; // e.g. 5 
+  outOf: number; // e.g. 5
 };
 
 type MarksMap = Record<string, number | "">; // key = `${rollNo}-${MainLabel}.${SubLabel}`
@@ -146,6 +146,10 @@ export default function MarksEntry() {
     loadSections();
   }, [examId]);
 
+  React.useEffect(() => {
+    if (!isAdminView) return;
+  }, [isAdminView]);
+
   // --- new helper: generate students array from numeric range (inclusive) ---
   function generateStudentsFromRange(start: number, end: number): Student[] {
     const arr: Student[] = [];
@@ -188,7 +192,24 @@ export default function MarksEntry() {
     async function loadExam() {
       if (!examId || examId <= 0) return;
       try {
-        const data: ExamMarksOut = await getExamMarks(examId);
+        let data: ExamMarksOut;
+
+        if (isAdminView) {
+          const params = new URLSearchParams({
+            subject_code: subjectCode,
+            exam_type: examName,
+            semester: String(semester),
+            academic_year: academicYear,
+          });
+
+          const res = await api.get(
+            `/exams/admin/combined-marks?${params.toString()}`
+          );
+          data = res.data;
+        } else {
+          data = await getExamMarks(examId);
+        }
+
         setSubjectCode(data.exam.subject_code);
         setSubjectName(data.exam.subject_name);
         setExamName(data.exam.exam_type);
@@ -256,24 +277,44 @@ export default function MarksEntry() {
           setStudents(ss);
         }
 
-        // marks -> build marks map keyed by `${rollNo}-${label}` where label is "Q1.A"
+        // marks -> build marks map keyed by `${rollNo}-${label}`
         if (data.marks && data.marks.length > 0) {
           const m: MarksMap = {};
-          // backend marks are objects with student_id and question_id; need to map them to labels
-          // We attempt to map by matching question_id -> question label from data.questions
-          const qById = new Map<number, string>();
-          (data.questions || []).forEach((q) =>
-            qById.set((q as any).id, (q as any).label)
-          );
 
-          data.marks.forEach((mk) => {
-            const qLabel = qById.get(mk.question_id);
-            if (!qLabel) return;
-            const student = data.students.find((st) => st.id === mk.student_id);
-            if (!student) return;
-            const key = `${student.roll_no}-${qLabel}`;
+          // map question_id -> label
+          const qById = new Map<number, string>();
+          (data.questions || []).forEach((q: any) => qById.set(q.id, q.label));
+
+          // map student_id -> roll_no (TEACHER VIEW ONLY)
+          const rollByStudentId = new Map<number, number>();
+          if (!isAdminView && data.students) {
+            data.students.forEach((s: any) => {
+              rollByStudentId.set(s.id, s.roll_no);
+            });
+          }
+
+          data.marks.forEach((mk: any) => {
+            let rollNo: number | undefined;
+            let qLabel: string | undefined;
+
+            if (isAdminView) {
+              //  ADMIN COMBINED VIEW
+              // backend sends roll_no + question_label
+              rollNo = mk.roll_no;
+              qLabel = mk.question_label;
+            } else {
+              //  TEACHER VIEW
+              // backend sends student_id + question_id
+              rollNo = rollByStudentId.get(mk.student_id);
+              qLabel = qById.get(mk.question_id);
+            }
+
+            if (!rollNo || !qLabel) return;
+
+            const key = `${rollNo}-${qLabel}`;
             m[key] = mk.marks === null ? "" : mk.marks;
           });
+
           setMarks(m);
         }
       } catch (err) {
@@ -563,37 +604,39 @@ export default function MarksEntry() {
   }
 
   // compute grand max based on questions and questionRules (uses only typed field minToCount)
-function computeComputedGrandMax() {
-  try {
-    let grand = 0;
-    for (const mq of mainQuestions) {
-      const subs = mq.subQuestions || [];
-      const subMaxes = subs.map((sq) => Number(sq.maxMarks || 0));
+  function computeComputedGrandMax() {
+    try {
+      let grand = 0;
+      for (const mq of mainQuestions) {
+        const subs = mq.subQuestions || [];
+        const subMaxes = subs.map((sq) => Number(sq.maxMarks || 0));
 
-      const rule: MainQuestionRule | undefined = questionRules?.[mq.label];
-      const n = rule && Number.isFinite(Number(rule.minToCount)) ? Number(rule.minToCount) : null;
+        const rule: MainQuestionRule | undefined = questionRules?.[mq.label];
+        const n =
+          rule && Number.isFinite(Number(rule.minToCount))
+            ? Number(rule.minToCount)
+            : null;
 
-      if (n && n > 0) {
-        const sorted = subMaxes.slice().sort((a, b) => b - a);
-        grand += sorted.slice(0, n).reduce((s, v) => s + (Number(v) || 0), 0);
-      } else {
-        grand += subMaxes.reduce((s, v) => s + (Number(v) || 0), 0);
+        if (n && n > 0) {
+          const sorted = subMaxes.slice().sort((a, b) => b - a);
+          grand += sorted.slice(0, n).reduce((s, v) => s + (Number(v) || 0), 0);
+        } else {
+          grand += subMaxes.reduce((s, v) => s + (Number(v) || 0), 0);
+        }
       }
+      return grand;
+    } catch (e) {
+      console.warn("Failed to compute computedGrandMax:", e);
+      return 0;
     }
-    return grand;
-  } catch (e) {
-    console.warn("Failed to compute computedGrandMax:", e);
-    return 0;
   }
-}
 
-function displayedGrandMax() {
-  const computed = computeComputedGrandMax();
-  if (maxTotalOverride === "" || maxTotalOverride === null) return computed;
-  const ov = Number(maxTotalOverride) || 0;
-  return Math.min(computed, ov);
-}
-
+  function displayedGrandMax() {
+    const computed = computeComputedGrandMax();
+    if (maxTotalOverride === "" || maxTotalOverride === null) return computed;
+    const ov = Number(maxTotalOverride) || 0;
+    return Math.min(computed, ov);
+  }
 
   async function handleFinalize() {
     if (!exam) {
@@ -648,8 +691,12 @@ function displayedGrandMax() {
   }
 
   async function handleSaveToServer() {
-    if (sections && sections.length > 0 && !selectedSectionId) {
+    if (!isAdminView && sections.length > 0 && !selectedSectionId) {
       alert("Please select a section before saving marks.");
+      return;
+    }
+    if (isAdminView) {
+      alert("Admin view is read-only. Marks cannot be saved here.");
       return;
     }
 
@@ -961,38 +1008,46 @@ function displayedGrandMax() {
 
       <div className="mb-4 flex items-center gap-3">
         <label className="text-sm text-slate-300">Section</label>
-
-        <select
-          value={selectedSectionId ?? ""}
-          onChange={handleSectionSelect}
-          className="rounded bg-slate-900 border border-slate-700 px-3 py-1 text-sm"
-        >
-          <option value="">-- Select section --</option>
-          {sections.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.section_name ?? `Section ${s.id}`} ({s.roll_start}-{s.roll_end}
-              )
-            </option>
-          ))}
-        </select>
+        {!isAdminView && (
+          <select
+            value={selectedSectionId ?? ""}
+            onChange={handleSectionSelect}
+            className="rounded bg-slate-900 border border-slate-700 px-3 py-1 text-sm"
+          >
+            <option value="">-- Select section --</option>
+            {sections.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.section_name ?? `Section ${s.id}`} ({s.roll_start}-
+                {s.roll_end})
+              </option>
+            ))}
+          </select>
+        )}
 
         <button
           className={`ml-2 text-xs px-2 py-1 rounded text-white ${
-            isAdmin
+            isAdmin || disabled
               ? "bg-slate-700 cursor-not-allowed opacity-60"
               : "bg-indigo-600 hover:bg-indigo-700"
           }`}
           onClick={() => {
-            if (isAdmin) {
-              // extra safety: do nothing and optionally show a friendly message
-              alert("Admins cannot create sections from this view.");
+            if (isAdmin || disabled) {
+              alert(
+                disabled
+                  ? "This exam is locked by admin."
+                  : "Admins cannot create sections from this view."
+              );
               return;
             }
             setCreatingSection(true);
           }}
-          disabled={isAdmin}
+          disabled={isAdmin || disabled}
           title={
-            isAdmin ? "Admins cannot create sections" : "Create a new section"
+            isAdmin
+              ? "Admins cannot create sections"
+              : disabled
+              ? "Exam is locked by admin"
+              : "Create a new section"
           }
         >
           Create Section
@@ -1283,7 +1338,8 @@ function displayedGrandMax() {
             <div className="flex gap-2">
               <button
                 onClick={async () => {
-                  if (isAdminView) return; // extra guard
+                  if (isAdminView || disabled) return;
+
                   if (!mqRuleMain) {
                     alert("Please pick a main question first.");
                     return;
@@ -1316,12 +1372,16 @@ function displayedGrandMax() {
                   setMqRuleMin(1);
                   setMqRuleOutOf(1);
                 }}
-                disabled={isAdminView}
+                disabled={isAdminView || disabled}
                 title={
-                  isAdminView ? "Admins cannot apply question rules" : undefined
+                  isAdminView
+                    ? "Admins cannot apply question rules"
+                    : disabled
+                    ? "Exam is locked by admin"
+                    : undefined
                 }
                 className={`rounded ${
-                  isAdminView
+                  isAdminView || disabled
                     ? "bg-slate-700 cursor-not-allowed opacity-60"
                     : "bg-emerald-600 hover:bg-emerald-700"
                 } px-3 py-1 text-xs text-white`}
@@ -1363,21 +1423,24 @@ function displayedGrandMax() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => {
-                            if (isAdminView) return; // extra guard
+                            if (isAdminView || disabled) return;
+
                             setQuestionRules((prev) => {
                               const copy = { ...prev };
                               delete copy[r.mainLabel];
                               return copy;
                             });
                           }}
-                          disabled={isAdminView}
+                          disabled={isAdminView || disabled}
                           title={
                             isAdminView
                               ? "Admins cannot remove question rules"
+                              : disabled
+                              ? "Exam is locked by admin"
                               : "Remove rule"
                           }
                           className={`text-xs rounded px-2 py-0.5 ${
-                            isAdminView
+                            isAdminView || disabled
                               ? "bg-slate-700 cursor-not-allowed opacity-60"
                               : "bg-rose-600"
                           } text-white`}

@@ -1,8 +1,13 @@
 // src/pages/Dashboard.tsx
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { createExam, downloadExamCsv, getExams, type ExamType } from "../services/examService";
-import { deleteExam } from "../services/examService"; 
+import {
+  createExam,
+  downloadExamCsv,
+  getExams,
+  type ExamType,
+} from "../services/examService";
+import { deleteExam } from "../services/examService";
 
 type SubjectCard = {
   id: number; // UI id
@@ -12,6 +17,7 @@ type SubjectCard = {
   examType: ExamType;
   semester: number;
   lastUpdated?: string;
+  academicYear: string;
 };
 
 export default function Dashboard() {
@@ -34,16 +40,15 @@ export default function Dashboard() {
     async function load() {
       try {
         const exams = await getExams();
-        const mapped: SubjectCard[] = exams.map((exam:any) => ({
+        const mapped: SubjectCard[] = exams.map((exam: any) => ({
           id: exam.id,
           examId: exam.id,
           code: exam.subject_code,
           name: exam.subject_name,
           examType: exam.exam_type as ExamType,
           semester: exam.semester,
-          lastUpdated: exam.created_at
-            ? new Date(exam.created_at).toLocaleString()
-            : undefined,
+          lastUpdated: exam.updated_at ?? exam.created_at,
+          academicYear: exam.academic_year,
         }));
         setSubjects(mapped);
       } catch (err) {
@@ -64,26 +69,81 @@ export default function Dashboard() {
     setNewSemester(1);
   }
 
-  async function handleCreateExam(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!newCode.trim() || !newName.trim()) return;
+  function formatLocalDateTime(iso?: string) {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  }
 
-    if (!academicYear || academicYear.trim().length < 7) {
-  alert("Please enter academic year (eg. 2025-2026)");
+  async function handleCreateExam(e: React.FormEvent<HTMLFormElement>) {
+  e.preventDefault();
+  if (!newCode.trim() || !newName.trim()) return;
+
+  if (!academicYear || academicYear.trim().length < 7) {
+    alert("Please enter academic year (eg. 2025-2026)");
+    return;
+  }
+
+  const normalizedCode = newCode.trim().toUpperCase();
+//Prevent exact duplicate exams
+ const exactExamExists = subjects.some(
+  (s) =>
+    s.code.toUpperCase() === normalizedCode &&
+    s.name.trim().toLowerCase() === newName.trim().toLowerCase() &&
+    s.examType === newExamType &&
+    s.semester === Number(newSemester) &&
+    s.academicYear === academicYear
+);
+
+if (exactExamExists) {
+  alert(
+    `This exam already exists with the same details:\n\n` +
+    `• Subject code: ${normalizedCode}\n` +
+    `• Subject name: ${newName}\n` +
+    `• Exam type: ${newExamType}\n` +
+    `• Semester: ${newSemester}\n` +
+    `• Academic Year: ${academicYear}`
+  );
   return;
 }
 
-    // 1) Create exam in backend
+//Subject code must map to ONE subject name only
+const codeUsedForDifferentSubject = subjects.some(
+  (s) =>
+    s.code.toUpperCase() === normalizedCode &&
+    s.name.trim().toLowerCase() !== newName.trim().toLowerCase()
+);
+
+if (codeUsedForDifferentSubject) {
+  alert(
+    `Subject code "${normalizedCode}" is already used for a different subject.\n\n` +
+    `Each subject code must map to only one subject name.`
+  );
+  return;
+}
+
+  
+  try {
     const exam = await createExam({
-      subject_code: newCode.trim().toUpperCase(),
+      subject_code: normalizedCode,
       subject_name: newName.trim(),
       exam_type: newExamType,
       semester: Number(newSemester),
       academic_year: academicYear,
-      is_locked: false,
     });
 
-    // 2) Create local card so it appears immediately
+    const lastUpdated =
+      exam.updated_at ??
+      exam.created_at ??
+      new Date().toISOString();
+
     const newSubject: SubjectCard = {
       id: exam.id,
       examId: exam.id,
@@ -91,14 +151,16 @@ export default function Dashboard() {
       name: exam.subject_name,
       examType: exam.exam_type as ExamType,
       semester: exam.semester,
-      lastUpdated: "Just now",
+      lastUpdated,
+      academicYear: exam.academic_year,
     };
 
     setSubjects((prev) => [newSubject, ...prev]);
+
     resetForm();
     setIsCreating(false);
 
-    // 3) Navigate to marks entry for this exam
+    //  navigate ONLY after successful creation
     navigate(
       `/marks-entry?examId=${exam.id}` +
         `&subject=${encodeURIComponent(exam.subject_code)}` +
@@ -106,7 +168,20 @@ export default function Dashboard() {
         `&exam=${encodeURIComponent(exam.exam_type)}` +
         `&sem=${encodeURIComponent(String(exam.semester))}`
     );
+
+  } catch (err: any) {
+    if (err?.response?.status === 400) {
+      alert(
+        err.response.data?.detail ||
+        "This exam already exists."
+      );
+      return;
+    }
+
+    console.error("Create exam failed", err);
+    alert("Failed to create exam. Please try again.");
   }
+}
 
   function handleOpen(subject: SubjectCard) {
     const examId = subject.examId ?? 0;
@@ -120,64 +195,68 @@ export default function Dashboard() {
     );
   }
 
+  async function handleExport(subject: SubjectCard) {
+    // determine exam id (try multiple common property names)
+    const examId =
+      (subject as any).id ??
+      (subject as any).examId ??
+      (subject as any).exam_id;
+    if (!examId) {
+      alert(
+        "Cannot determine exam id for this subject. Please open the marks page to export."
+      );
+      return;
+    }
 
-async function handleExport(subject: SubjectCard) {
-  // determine exam id (try multiple common property names)
-  const examId = (subject as any).id ?? (subject as any).examId ?? (subject as any).exam_id;
-  if (!examId) {
-    alert("Cannot determine exam id for this subject. Please open the marks page to export.");
-    return;
+    const safe = (s?: string | number | null) =>
+      String(s ?? "")
+        .replace(/\s+/g, "_")
+        .replace(/[^a-zA-Z0-9_\-\.]/g, "");
+
+    const subjCode =
+      (subject as any).code ?? (subject as any).subject_code ?? "";
+    const subjName =
+      (subject as any).name ?? (subject as any).subject_name ?? "";
+    const examType =
+      (subject as any).examType ?? (subject as any).exam_type ?? "";
+    const semester = (subject as any).semester ?? "";
+    const academicYear =
+      (subject as any).academicYear ?? (subject as any).academic_year ?? "";
+
+    const filename = `${safe(subjCode)}_${safe(subjName)}_${safe(
+      examType
+    )}_Sem${safe(semester)}${academicYear ? "_" + safe(academicYear) : ""}.csv`;
+
+    try {
+      await downloadExamCsv(examId, filename);
+    } catch (err) {
+      console.error("Export failed", err);
+      alert("Failed to download CSV. See console for details.");
+    }
   }
 
-  const safe = (s?: string | number | null) =>
-    String(s ?? "")
-      .replace(/\s+/g, "_")
-      .replace(/[^a-zA-Z0-9_\-\.]/g, "");
+  async function handleDelete(id: number) {
+    const ok = window.confirm(
+      "⚠️ Are you sure you want to delete this entire subject/exam?\n\n" +
+        "This will permanently delete:\n" +
+        "• All sections\n" +
+        "• All roll numbers\n" +
+        "• All marks\n" +
+        "• All questions\n\n" +
+        "This action CANNOT be undone."
+    );
 
-  const subjCode = (subject as any).code ?? (subject as any).subject_code ?? "";
-  const subjName = (subject as any).name ?? (subject as any).subject_name ?? "";
-  const examType = (subject as any).examType ?? (subject as any).exam_type ?? "";
-  const semester = (subject as any).semester ?? "";
-  const academicYear =
-    (subject as any).academicYear ?? (subject as any).academic_year ?? "";
+    if (!ok) return;
 
-  const filename = `${safe(subjCode)}_${safe(subjName)}_${safe(examType)}_Sem${safe(
-    semester
-  )}${academicYear ? "_" + safe(academicYear) : ""}.csv`;
-
-  try {
-    await downloadExamCsv(examId, filename);
-  } catch (err) {
-    console.error("Export failed", err);
-    alert("Failed to download CSV. See console for details.");
+    try {
+      await deleteExam(id); // <-- backend DELETE call
+      setSubjects((prev) => prev.filter((s) => s.id !== id));
+      alert("Exam deleted successfully.");
+    } catch (err: any) {
+      console.error("Delete failed", err);
+      alert("Failed to delete exam. Check console for details.");
+    }
   }
-}
-
-
-
-async function handleDelete(id: number) {
-  const ok = window.confirm(
-    "⚠️ Are you sure you want to delete this entire subject/exam?\n\n" +
-    "This will permanently delete:\n" +
-    "• All sections\n" +
-    "• All roll numbers\n" +
-    "• All marks\n" +
-    "• All questions\n\n" +
-    "This action CANNOT be undone."
-  );
-
-  if (!ok) return;
-
-  try {
-    await deleteExam(id);   // <-- backend DELETE call
-    setSubjects((prev) => prev.filter((s) => s.id !== id));
-    alert("Exam deleted successfully.");
-  } catch (err: any) {
-    console.error("Delete failed", err);
-    alert("Failed to delete exam. Check console for details.");
-  }
-}
-
 
   return (
     <div className="space-y-8">
@@ -350,7 +429,7 @@ async function handleDelete(id: number) {
 
               {s.lastUpdated && (
                 <p className="mt-2 text-[11px] text-slate-500">
-                  Last updated: {s.lastUpdated}
+                  Last updated: {formatLocalDateTime(s.lastUpdated)}
                 </p>
               )}
             </div>

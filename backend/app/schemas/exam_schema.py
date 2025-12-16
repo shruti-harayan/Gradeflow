@@ -1,8 +1,26 @@
 # backend/app/schemas/exam_schema.py
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional,Any
 from pydantic import BaseModel, Field
 
+class QuestionOut(BaseModel):
+    id: int
+    label: str
+    max_marks: int
+
+    class Config:
+        from_attributes = True
+
+
+class StudentOut(BaseModel):
+    id: int
+    roll_no: int
+    name: Optional[str] = None   
+    absent: bool
+
+    class Config:
+        from_attributes = True
+        
 class ExamBase(BaseModel):
     subject_code: str
     subject_name: str
@@ -17,13 +35,33 @@ class ExamCreate(ExamBase):
 class ExamOut(ExamBase):
     id: int
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None 
     is_locked: bool = False
     locked_by: Optional[int] = None
     created_by: Optional[int]=None
     question_rules: Optional[Dict[str, Any]] = None
 
     class Config:
-       orm_mode = True
+            orm_mode = True
+            json_encoders = {
+                datetime: lambda v: (
+                    v.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+                    if v.tzinfo is None
+                    else v.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+                )
+            }
+
+class AdminMarkOut(BaseModel):
+    roll_no: int
+    question_label: str
+    marks: float | None
+
+
+class AdminCombinedMarksOut(BaseModel):
+    exam: ExamOut
+    questions: List[QuestionOut]
+    students: List[StudentOut]
+    marks: List[AdminMarkOut]
 
 
 class QuestionIn(BaseModel):
@@ -49,23 +87,7 @@ class MarksSaveRequest(BaseModel):
     students: List[StudentMarksIn]
     question_rules: Optional[Dict[str, Any]] = None
 
-class QuestionOut(BaseModel):
-    id: int
-    label: str
-    max_marks: int
 
-    class Config:
-        from_attributes = True
-
-
-class StudentOut(BaseModel):
-    id: int
-    roll_no: int
-    name: Optional[str] = None   
-    absent: bool
-
-    class Config:
-        from_attributes = True
 
 
 class MarkOut(BaseModel):

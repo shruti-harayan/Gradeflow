@@ -1,6 +1,7 @@
 // src/services/examService.ts
 import { api } from "./api";
 
+
 export type ExamType = "Internal" | "External" | "Practical" | "ATKT" | "Other";
 export type MainQuestionRule = {
   mainLabel?: string;
@@ -13,17 +14,27 @@ export interface ExamCreatePayload {
   subject_name: string;
   exam_type: ExamType;
   semester: number;
-  created_at?: string | null;
-  is_locked: boolean;
   academic_year: string;
+}
+
+export interface ExamOut {
+  id: number;
+
+  subject_code: string;
+  subject_name: string;
+  exam_type: ExamType;
+  semester: number;
+  academic_year: string;
+
+  created_at?: string;   // ISO UTC
+  updated_at?: string;   // ISO UTC
+
+  is_locked: boolean;
+  locked_by?: number | null;
   created_by?: number | null;
-  locked_by?: number | null; 
   question_rules?: Record<string, MainQuestionRule> | null;
 }
 
-export interface ExamOut extends ExamCreatePayload {
-  id: number;
-}
 
 export interface QuestionPayload {
   label: string;
@@ -86,7 +97,9 @@ export async function getExams(params?: {
   subject_name?: string;
   academic_year?: string;
   creator_id?: string | number;
-}) {
+}) 
+{
+  
   // remove empty params (optional but helpful)
   const p: Record<string, string> = {};
   if (params?.subject_name) p.subject_name = String(params.subject_name);
@@ -94,13 +107,37 @@ export async function getExams(params?: {
   if (params?.creator_id !== undefined && params?.creator_id !== null)
     p.creator_id = String(params.creator_id);
 
-  const resp = await api.get("/exams", { params: p });
+  const resp = await api.get<ExamOut[]>("/exams");
   return resp.data;
 }
 
+export async function downloadMergedExamCsv(
+  examIds: number[],
+  filename: string
+) {
+  const res = await api.post(
+    "/exams/export-merged",
+    { exam_ids: examIds },
+    { responseType: "blob" } 
+  );
+
+  const blob = new Blob([res.data], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
 
 
-export async function createExam(payload: ExamCreatePayload) {
+export async function createExam(
+  payload: ExamCreatePayload
+): Promise<ExamOut> {
   const res = await api.post<ExamOut>("/exams", payload);
   return res.data;
 }
