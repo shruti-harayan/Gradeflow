@@ -92,24 +92,28 @@ export async function getExamMarks(examId: number) {
 }
 
 
-
 export async function getExams(params?: {
   subject_name?: string;
   academic_year?: string;
-  creator_id?: string | number;
-}) 
-{
-  
-  // remove empty params (optional but helpful)
+  created_by?: number;
+}) {
   const p: Record<string, string> = {};
-  if (params?.subject_name) p.subject_name = String(params.subject_name);
-  if (params?.academic_year) p.academic_year = String(params.academic_year);
-  if (params?.creator_id !== undefined && params?.creator_id !== null)
-    p.creator_id = String(params.creator_id);
 
-  const resp = await api.get<ExamOut[]>("/exams");
+  if (params?.subject_name)
+    p.subject_name = String(params.subject_name);
+
+  if (params?.academic_year)
+    p.academic_year = String(params.academic_year);
+
+  if (params?.created_by !== undefined && params?.created_by !== null)
+    p.created_by = String(params.created_by);
+
+  //  PASS PARAMS TO BACKEND
+  const resp = await api.get<ExamOut[]>("/exams", { params: p });
+
   return resp.data;
 }
+
 
 export async function downloadMergedExamCsv(
   examIds: number[],

@@ -66,30 +66,52 @@ def finalize_exam(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if getattr(current_user, "role", None) != "admin":
-        raise HTTPException(status_code=403, detail="Admin privileges required")
-
-    ref_exam = db.query(Exam).filter(Exam.id == exam_id).first()
-    if not ref_exam:
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    #  GLOBAL LOCK: lock all shared exams
-    db.query(Exam).filter(
-        Exam.subject_code == ref_exam.subject_code,
-        Exam.exam_type == ref_exam.exam_type,
-        Exam.semester == ref_exam.semester,
-        Exam.academic_year == ref_exam.academic_year,
-    ).update(
-        {
-            "is_locked": True,
-            "locked_by": current_user.id,
-        },
-        synchronize_session=False,
-    )
 
-    db.commit()
+    if current_user.role == "teacher":
+        # safety: teacher can only finalize their own exam
+        if exam.created_by != current_user.id:
+            raise HTTPException(status_code=403, detail="Not allowed")
 
-    return {"status": "ok", "message": "Exam finalized globally"}
+        exam.is_locked = True
+        exam.locked_by = current_user.id
+
+        db.add(exam)
+        db.commit()
+        db.refresh(exam)
+
+        return {
+            "status": "ok",
+            "scope": "single",
+            "message": "Exam finalized",
+        }
+
+    if current_user.role == "admin":
+        db.query(Exam).filter(
+            Exam.subject_code == exam.subject_code,
+            Exam.subject_name == exam.subject_name,  # IMPORTANT
+            Exam.exam_type == exam.exam_type,
+            Exam.semester == exam.semester,
+            Exam.academic_year == exam.academic_year,
+        ).update(
+            {
+                "is_locked": True,
+                "locked_by": current_user.id,
+            },
+            synchronize_session=False,
+        )
+
+        db.commit()
+
+        return {
+            "status": "ok",
+            "scope": "global",
+            "message": "Exam finalized globally",
+        }
+    raise HTTPException(status_code=403, detail="Not authorized")
 
 
 @router.post("/{exam_id}/unfinalize", dependencies=[Depends(admin_required)])
@@ -128,8 +150,8 @@ def unfinalize_exam(
 def list_exams(
     subject_name: Optional[str] = Query(None),
     academic_year: Optional[str] = Query(None),
-    creator_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
+    created_by: Optional[int] = Query(None),
     current_user: User = Depends(get_current_user),
 ):
     q = db.query(Exam)
@@ -139,9 +161,9 @@ def list_exams(
         # Teachers can see ONLY their own exams
         q = q.filter(Exam.created_by == current_user.id)
     else:
-        # Admins: optionally filter by creator_id
-        if creator_id is not None:
-            q = q.filter(Exam.created_by == creator_id)
+        # Admins: optionally filter 
+        if created_by is not None:
+            q = q.filter(Exam.created_by == created_by)
 
     # ---------- Optional filters ----------
     if subject_name:
@@ -509,6 +531,7 @@ def update_exam(
 )
 def get_admin_combined_marks(
     subject_code: str,
+    subject_name: str,
     exam_type: str,
     semester: int,
     academic_year: str,
@@ -523,6 +546,7 @@ def get_admin_combined_marks(
         db.query(Exam)
         .filter(
             Exam.subject_code == subject_code,
+            Exam.subject_name == subject_name,
             Exam.exam_type == exam_type,
             Exam.semester == semester,
             Exam.academic_year == academic_year,
@@ -613,7 +637,6 @@ def get_admin_combined_marks(
         "students": merged_students,
         "marks": marks_out,
     }
-
 
 
 def export_single_exam_csv(
@@ -962,6 +985,7 @@ def export_merged_exam_csv(
     response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
+
 @router.get("/{exam_id}/export")
 def export_exam_csv(
     exam_id: int,
@@ -978,6 +1002,7 @@ def export_exam_csv(
             db.query(Exam)
             .filter(
                 Exam.subject_code == exam.subject_code,
+                Exam.subject_name == exam.subject_name,
                 Exam.exam_type == exam.exam_type,
                 Exam.semester == exam.semester,
                 Exam.academic_year == exam.academic_year,

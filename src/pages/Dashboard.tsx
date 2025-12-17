@@ -1,5 +1,5 @@
 // src/pages/Dashboard.tsx
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   createExam,
@@ -35,31 +35,42 @@ export default function Dashboard() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // 🔹 Load exams from backend on first mount
-  React.useEffect(() => {
-    async function load() {
-      try {
-        const exams = await getExams();
-        const mapped: SubjectCard[] = exams.map((exam: any) => ({
-          id: exam.id,
-          examId: exam.id,
-          code: exam.subject_code,
-          name: exam.subject_name,
-          examType: exam.exam_type as ExamType,
-          semester: exam.semester,
-          lastUpdated: exam.updated_at ?? exam.created_at,
-          academicYear: exam.academic_year,
-        }));
-        setSubjects(mapped);
-      } catch (err) {
-        console.error(err);
-        setError("Failed to load exams from server.");
-      } finally {
-        setLoading(false);
-      }
-    }
+  const [subjectFilter, setSubjectFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
 
-    load();
+  //  Load exams from backend on first mount
+  async function loadExams(filters?: {
+    subject_name?: string;
+    academic_year?: string;
+  }) {
+    try {
+      setLoading(true);
+
+      const exams = await getExams(filters);
+
+      const mapped: SubjectCard[] = exams.map((exam: any) => ({
+        id: exam.id,
+        examId: exam.id,
+        code: exam.subject_code,
+        name: exam.subject_name,
+        examType: exam.exam_type as ExamType,
+        semester: exam.semester,
+        lastUpdated: exam.updated_at ?? exam.created_at,
+        academicYear: exam.academic_year,
+      }));
+
+      setSubjects(mapped);
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load exams from server.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  React.useEffect(() => {
+    loadExams(); // initial load (no filters)
   }, []);
 
   function resetForm() {
@@ -83,105 +94,98 @@ export default function Dashboard() {
   }
 
   async function handleCreateExam(e: React.FormEvent<HTMLFormElement>) {
-  e.preventDefault();
-  if (!newCode.trim() || !newName.trim()) return;
+    e.preventDefault();
+    if (!newCode.trim() || !newName.trim()) return;
 
-  if (!academicYear || academicYear.trim().length < 7) {
-    alert("Please enter academic year (eg. 2025-2026)");
-    return;
-  }
+    if (!academicYear || academicYear.trim().length < 7) {
+      alert("Please enter academic year (eg. 2025-2026)");
+      return;
+    }
 
-  const normalizedCode = newCode.trim().toUpperCase();
-//Prevent exact duplicate exams
- const exactExamExists = subjects.some(
-  (s) =>
-    s.code.toUpperCase() === normalizedCode &&
-    s.name.trim().toLowerCase() === newName.trim().toLowerCase() &&
-    s.examType === newExamType &&
-    s.semester === Number(newSemester) &&
-    s.academicYear === academicYear
-);
-
-if (exactExamExists) {
-  alert(
-    `This exam already exists with the same details:\n\n` +
-    `• Subject code: ${normalizedCode}\n` +
-    `• Subject name: ${newName}\n` +
-    `• Exam type: ${newExamType}\n` +
-    `• Semester: ${newSemester}\n` +
-    `• Academic Year: ${academicYear}`
-  );
-  return;
-}
-
-//Subject code must map to ONE subject name only
-const codeUsedForDifferentSubject = subjects.some(
-  (s) =>
-    s.code.toUpperCase() === normalizedCode &&
-    s.name.trim().toLowerCase() !== newName.trim().toLowerCase()
-);
-
-if (codeUsedForDifferentSubject) {
-  alert(
-    `Subject code "${normalizedCode}" is already used for a different subject.\n\n` +
-    `Each subject code must map to only one subject name.`
-  );
-  return;
-}
-
-  
-  try {
-    const exam = await createExam({
-      subject_code: normalizedCode,
-      subject_name: newName.trim(),
-      exam_type: newExamType,
-      semester: Number(newSemester),
-      academic_year: academicYear,
-    });
-
-    const lastUpdated =
-      exam.updated_at ??
-      exam.created_at ??
-      new Date().toISOString();
-
-    const newSubject: SubjectCard = {
-      id: exam.id,
-      examId: exam.id,
-      code: exam.subject_code,
-      name: exam.subject_name,
-      examType: exam.exam_type as ExamType,
-      semester: exam.semester,
-      lastUpdated,
-      academicYear: exam.academic_year,
-    };
-
-    setSubjects((prev) => [newSubject, ...prev]);
-
-    resetForm();
-    setIsCreating(false);
-
-    //  navigate ONLY after successful creation
-    navigate(
-      `/marks-entry?examId=${exam.id}` +
-        `&subject=${encodeURIComponent(exam.subject_code)}` +
-        `&subjectName=${encodeURIComponent(exam.subject_name)}` +
-        `&exam=${encodeURIComponent(exam.exam_type)}` +
-        `&sem=${encodeURIComponent(String(exam.semester))}`
+    const normalizedCode = newCode.trim().toUpperCase();
+    //Prevent exact duplicate exams
+    const exactExamExists = subjects.some(
+      (s) =>
+        s.code.toUpperCase() === normalizedCode &&
+        s.name.trim().toLowerCase() === newName.trim().toLowerCase() &&
+        s.examType === newExamType &&
+        s.semester === Number(newSemester) &&
+        s.academicYear === academicYear
     );
 
-  } catch (err: any) {
-    if (err?.response?.status === 400) {
+    if (exactExamExists) {
       alert(
-        err.response.data?.detail ||
-        "This exam already exists."
+        `This exam already exists with the same details:\n\n` +
+          `• Subject code: ${normalizedCode}\n` +
+          `• Subject name: ${newName}\n` +
+          `• Exam type: ${newExamType}\n` +
+          `• Semester: ${newSemester}\n` +
+          `• Academic Year: ${academicYear}`
       );
       return;
     }
 
-    console.error("Create exam failed", err);
-    alert("Failed to create exam. Please try again.");
+    //Subject code must map to ONE subject name only
+    const codeUsedForDifferentSubject = subjects.some(
+      (s) =>
+        s.code.toUpperCase() === normalizedCode &&
+        s.name.trim().toLowerCase() !== newName.trim().toLowerCase()
+    );
+
+    if (codeUsedForDifferentSubject) {
+      alert(
+        `Subject code "${normalizedCode}" is already used for a different subject.\n\n` +
+          `Each subject code must map to only one subject name.`
+      );
+      return;
+    }
+
+    try {
+      const exam = await createExam({
+        subject_code: normalizedCode,
+        subject_name: newName.trim(),
+        exam_type: newExamType,
+        semester: Number(newSemester),
+        academic_year: academicYear,
+      });
+
+      const lastUpdated =
+        exam.updated_at ?? exam.created_at ?? new Date().toISOString();
+
+      const newSubject: SubjectCard = {
+        id: exam.id,
+        examId: exam.id,
+        code: exam.subject_code,
+        name: exam.subject_name,
+        examType: exam.exam_type as ExamType,
+        semester: exam.semester,
+        lastUpdated,
+        academicYear: exam.academic_year,
+      };
+
+      setSubjects((prev) => [newSubject, ...prev]);
+
+      resetForm();
+      setIsCreating(false);
+
+      //  navigate ONLY after successful creation
+      navigate(
+        `/marks-entry?examId=${exam.id}` +
+          `&subject=${encodeURIComponent(exam.subject_code)}` +
+          `&subjectName=${encodeURIComponent(exam.subject_name)}` +
+          `&exam=${encodeURIComponent(exam.exam_type)}` +
+          `&sem=${encodeURIComponent(String(exam.semester))}`
+      );
+    } catch (err: any) {
+      if (err?.response?.status === 400) {
+        alert(err.response.data?.detail || "This exam already exists.");
+        return;
+      }
+
+      console.error("Create exam failed", err);
+      alert("Failed to create exam. Please try again.");
+    }
   }
-}
 
   function handleOpen(subject: SubjectCard) {
     const examId = subject.examId ?? 0;
@@ -389,6 +393,47 @@ if (codeUsedForDifferentSubject) {
           </div>
         </form>
       )}
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          placeholder="Search by subject name"
+          value={subjectFilter}
+          onChange={(e) => setSubjectFilter(e.target.value)}
+          className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+        />
+
+        <input
+          type="text"
+          placeholder="Academic year (e.g. 2025-2026)"
+          value={yearFilter}
+          onChange={(e) => setYearFilter(e.target.value)}
+          className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+        />
+
+        <button
+          onClick={() =>
+            loadExams({
+              subject_name: subjectFilter,
+              academic_year: yearFilter,
+            })
+          }
+          className="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+        >
+          Apply
+        </button>
+
+        <button
+          onClick={() => {
+            setSubjectFilter("");
+            setYearFilter("");
+            loadExams(); // reload all exams
+          }}
+          className="rounded border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+        >
+          Clear
+        </button>
+      </div>
 
       {/* Subject cards */}
       <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">

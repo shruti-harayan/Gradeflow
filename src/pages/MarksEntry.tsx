@@ -197,6 +197,7 @@ export default function MarksEntry() {
         if (isAdminView) {
           const params = new URLSearchParams({
             subject_code: subjectCode,
+            subject_name: subjectName,
             exam_type: examName,
             semester: String(semester),
             academic_year: academicYear,
@@ -802,7 +803,7 @@ export default function MarksEntry() {
           </div>
         )}
         {/* Show appropriate locked message only to the teacher-owner or when admin locked */}{" "}
-        {/* 🔒 Teacher-only lock messages (NEVER show for admin) */}
+        {/* Teacher-only lock messages*/}
         {isFinalized && user?.role === "teacher" && !isAdminView && (
           <div className="mb-4">
             {(() => {
@@ -1177,6 +1178,7 @@ export default function MarksEntry() {
             />
             <button
               type="submit"
+              title="Add single student"
               disabled={isAdminView || disabled}
               className={`rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white ${
                 isAdminView || disabled
@@ -1218,6 +1220,7 @@ export default function MarksEntry() {
 
               <button
                 type="submit"
+                title="Generate students in range"
                 disabled={isAdminView || disabled}
                 className={`ml-2 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white ${
                   isAdminView || disabled
@@ -1278,6 +1281,7 @@ export default function MarksEntry() {
             <button
               type="submit"
               disabled={isAdminView || disabled}
+              title="Add main question"
               className={`mt-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs text-white ${
                 isAdminView || disabled
                   ? "opacity-50 cursor-not-allowed"
@@ -1751,6 +1755,7 @@ export default function MarksEntry() {
             <button
               type="button"
               onClick={handleSaveToServer}
+              title="Save marks to server"
               disabled={
                 !examId ||
                 examId <= 0 ||
@@ -1779,6 +1784,7 @@ export default function MarksEntry() {
           <button
             type="button"
             onClick={handleExportCSV}
+            title="Export the marks table as CSV"
             className="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-600 shadow shadow-indigo-500/40"
           >
             Export CSV
@@ -1788,11 +1794,14 @@ export default function MarksEntry() {
             <button
               onClick={handleFinalize}
               disabled={disabled || isFinalized}
-              className={`w-full text-center font-bold rounded px-4 py-3 ${
-                isFinalized
-                  ? "opacity-60 cursor-not-allowed"
-                  : "bg-red-600 text-white hover:bg-red-700"
-              } border-2 border-red-700`}
+              title="Finalize the exam to lock it for further edits"
+              className={
+                "w-full text-center font-bold rounded px-4 py-3 border-2 border-red-700 " +
+                
+                (disabled || isFinalized
+                  ? "opacity-50 cursor-not-allowed bg-red-600/60 text-white"
+                  : "bg-red-600 text-white hover:bg-red-700")
+              }
             >
               Final Submit — Lock exam (cannot re-edit)
             </button>

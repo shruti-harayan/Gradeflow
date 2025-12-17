@@ -12,15 +12,12 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 
-
-
 export default function AdminDashboard() {
   const [exams, setExams] = React.useState<ExamOut[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
-  
 
   const [selectedTeacherId, setSelectedTeacherId] = React.useState<
     number | null
@@ -107,7 +104,7 @@ export default function AdminDashboard() {
   async function loadExams(filters?: {
     subject?: string;
     academic_year?: string;
-    creator_id?: string | number;
+    created_by?: number;
   }) {
     setLoading(true);
     setFilterError(null);
@@ -135,11 +132,11 @@ export default function AdminDashboard() {
       if (filters?.academic_year && String(filters.academic_year).trim())
         params.academic_year = String(filters.academic_year).trim();
       if (
-        filters?.creator_id !== undefined &&
-        filters?.creator_id !== null &&
-        String(filters.creator_id).trim()
+        filters?.created_by !== undefined &&
+        filters?.created_by !== null &&
+        String(filters.created_by).trim()
       ) {
-        params.creator_id = String(filters.creator_id).trim();
+        params.created_by = String(filters.created_by).trim();
       }
 
       const data = await getExams(params);
@@ -151,14 +148,14 @@ export default function AdminDashboard() {
       if (Array.isArray(data)) {
         if (
           data.length === 0 &&
-          (params.subject_name || params.academic_year || params.creator_id)
+          (params.subject_name || params.academic_year || params.created_by)
         ) {
           noResults = true;
           if (params.subject_name && params.academic_year) {
             noResultsMsg = `No exams found for subject "${params.subject_name}" in academic year "${params.academic_year}".`;
           } else if (params.subject_name) {
             noResultsMsg = `No exams found for subject "${params.subject_name}".`;
-          } else if (params.creator_id) {
+          } else if (params.created_by) {
             noResultsMsg = `No exams found for the selected teacher.`;
           } else {
             noResultsMsg = `No exams found for academic year "${params.academic_year}".`;
@@ -272,31 +269,30 @@ export default function AdminDashboard() {
   }
 
   async function handleDownloadMerged(g: {
-  representative: ExamOut;
-  exams: ExamOut[];
-}) {
-  const safe = (s: string) =>
-    s.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\.]/g, "");
+    representative: ExamOut;
+    exams: ExamOut[];
+  }) {
+    const safe = (s: string) =>
+      s.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\.]/g, "");
 
-  const r = g.representative;
+    const r = g.representative;
 
-  const filename =
-    `${safe(r.subject_code)}_${safe(r.subject_name)}_` +
-    `${safe(r.exam_type)}_Sem${r.semester}_` +
-    `${safe(r.academic_year)}_MERGED.csv`;
+    const filename =
+      `${safe(r.subject_code)}_${safe(r.subject_name)}_` +
+      `${safe(r.exam_type)}_Sem${r.semester}_` +
+      `${safe(r.academic_year)}_MERGED.csv`;
 
-  try {
-    await downloadMergedExamCsv(
-      g.exams.map((e) => e.id),
-      filename
-    );
-    showToast("Merged CSV downloaded.");
-  } catch (err) {
-    console.error("Merged download failed", err);
-    showToast("Failed to download merged CSV.");
+    try {
+      await downloadMergedExamCsv(
+        g.exams.map((e) => e.id),
+        filename
+      );
+      showToast("Merged CSV downloaded.");
+    } catch (err) {
+      console.error("Merged download failed", err);
+      showToast("Failed to download merged CSV.");
+    }
   }
-}
-
 
   // View marks navigates to marks-entry page (adminView=1)
   function handleViewMarks(e: ExamOut) {
@@ -374,9 +370,7 @@ export default function AdminDashboard() {
             loadExams({
               subject: subjectFilter,
               academic_year: yearFilter,
-              creator_id: selectedTeacherId
-                ? String(selectedTeacherId)
-                : undefined,
+              created_by: selectedTeacherId ?? undefined,
             });
           }}
           className="rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
@@ -604,7 +598,7 @@ export default function AdminDashboard() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* LEFT: Teacher list (restored as original) */}
+        {/* LEFT: Teacher list  */}
         <div className="lg:col-span-1 space-y-4">
           <TeacherList
             onSelectTeacher={(id, name) => {
@@ -614,7 +608,7 @@ export default function AdminDashboard() {
               loadExams({
                 subject: subjectFilter,
                 academic_year: yearFilter,
-                creator_id: String(id),
+                created_by: id,
               });
             }}
           />
@@ -632,7 +626,7 @@ export default function AdminDashboard() {
                 onClick={() => {
                   setSelectedTeacherId(null);
                   setSelectedTeacherName(null);
-                  // reload without creator_id
+
                   loadExams({
                     subject: subjectFilter,
                     academic_year: yearFilter,
@@ -648,7 +642,7 @@ export default function AdminDashboard() {
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-2">
             {groupExamsForAdmin(exams).map((g) => {
               const e = g.representative;
-            
+
               return (
                 <div
                   key={g.key}
@@ -787,7 +781,9 @@ export default function AdminDashboard() {
                     </button>
 
                     <button
-                      onClick={ () => {handleDownloadMerged(g)}}
+                      onClick={() => {
+                        handleDownloadMerged(g);
+                      }}
                       title="Download merged CSV for all teachers"
                       className="rounded px-3 py-2 text-xs border border-slate-700 text-slate-100 hover:bg-slate-800"
                     >
