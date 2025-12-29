@@ -14,6 +14,7 @@ import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 
 export default function AdminDashboard() {
+  console.log("AdminDashboard rendered");
   const [exams, setExams] = React.useState<ExamOut[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -875,6 +876,7 @@ useEffect(() => {
     </div>
   );
 }
+
 
 
 
