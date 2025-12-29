@@ -18,3 +18,7 @@ export function setAuthToken(token: string | null) {
   }
 }
 
+const token = localStorage.getItem("gf_token");
+if (token) {
+  api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+}
