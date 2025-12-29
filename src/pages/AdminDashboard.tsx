@@ -1,5 +1,6 @@
 // src/pages/AdminDashboard.tsx
 import React from "react";
+import { useEffect } from "react";
 import {
   getExams,
   downloadMergedExamCsv,
@@ -871,4 +872,5 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
 
