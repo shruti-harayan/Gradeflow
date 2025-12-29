@@ -1,6 +1,5 @@
 // src/pages/AdminDashboard.tsx
 import React from "react";
-import { useEffect } from "react";
 import {
   getExams,
   downloadMergedExamCsv,
@@ -14,20 +13,11 @@ import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 
 export default function AdminDashboard() {
-  console.log("AdminDashboard rendered");
   const [exams, setExams] = React.useState<ExamOut[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  const [backendStatus, setBackendStatus] = React.useState("");
-useEffect(() => {
-  api.get("/")
-    .then(res => setBackendStatus(res.data.status))
-    .catch(() => setBackendStatus("error"));
-}, []);
-
 
   const [selectedTeacherId, setSelectedTeacherId] = React.useState<
     number | null
@@ -322,7 +312,6 @@ useEffect(() => {
   if (error) return <p className="text-red-400 text-sm">{error}</p>;
 
   return (
-    <p>Backend status: {backendStatus}</p>
     <div className="space-y-8">
       <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
       <p className="text-xs text-slate-400">
@@ -876,6 +865,7 @@ useEffect(() => {
     </div>
   );
 }
+
 
 
 
