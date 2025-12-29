@@ -19,10 +19,12 @@ export default function AdminDashboard() {
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
-  useEffect(() => {
+
+  const [backendStatus, setBackendStatus] = React.useState("");
+useEffect(() => {
   api.get("/")
-    .then(res => console.log("Backend says:", res.data))
-    .catch(err => console.error(err));
+    .then(res => setBackendStatus(res.data.status))
+    .catch(() => setBackendStatus("error"));
 }, []);
 
 
@@ -319,6 +321,7 @@ export default function AdminDashboard() {
   if (error) return <p className="text-red-400 text-sm">{error}</p>;
 
   return (
+    <p>Backend status: {backendStatus}</p>
     <div className="space-y-8">
       <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
       <p className="text-xs text-slate-400">
@@ -872,5 +875,6 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
 
 
