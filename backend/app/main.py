@@ -12,6 +12,7 @@ app = FastAPI(title="GradeFlow API")
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://gradeflow-beta.vercel.app/",
 ]
 
 app.add_middleware(
@@ -28,3 +29,4 @@ app.include_router(exams.router, prefix="/exams", tags=["exams"])
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
