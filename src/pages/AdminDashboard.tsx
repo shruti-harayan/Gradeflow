@@ -18,6 +18,12 @@ export default function AdminDashboard() {
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
+  useEffect(() => {
+  api.get("/")
+    .then(res => console.log("Backend says:", res.data))
+    .catch(err => console.error(err));
+}, []);
+
 
   const [selectedTeacherId, setSelectedTeacherId] = React.useState<
     number | null
@@ -865,3 +871,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
