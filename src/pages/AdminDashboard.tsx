@@ -1,4 +1,5 @@
 // src/pages/AdminDashboard.tsx
+import { useEffect } from "react";
 import React from "react";
 import {
   getExams,
@@ -13,12 +14,23 @@ import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 
 export default function AdminDashboard() {
+  console.log("AdminDashboard rendered");
+useEffect(() => {
+  console.log("API BASE:", api.defaults.baseURL);
+
+  api.get("/")
+    .then(res => console.log("Backend says:", res.data))
+    .catch(err => console.error(err));
+}, []);
+
+
   const [exams, setExams] = React.useState<ExamOut[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  
   const [selectedTeacherId, setSelectedTeacherId] = React.useState<
     number | null
   >(null);
@@ -865,6 +877,7 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
 
 
 
