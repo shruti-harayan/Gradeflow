@@ -1,7 +1,14 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { useEffect } from "react";
 
 export default function Home() {
+  useEffect(() => {
+  fetch("https://gradeflow-hggr.onrender.com/")
+    .then(res => res.json())
+    .then(console.log);
+}, []);
+
   return (
     <div className="min-h-[calc(100vh-96px)] flex flex-col gap-10 px-4 pb-12">
       {/* Hero section */}
@@ -201,3 +208,4 @@ export default function Home() {
     </div>
   );
 }
+
