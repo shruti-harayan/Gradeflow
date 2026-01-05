@@ -1,14 +1,10 @@
-import hashlib
-import requests,secrets
+import hashlib, secrets
 from fastapi import APIRouter, Body, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
-from google.oauth2 import id_token
-from google.auth.transport import requests as grequests
 from app.database import get_db
 from app.models import User
 from app.core.security import create_access_token,hash_password,get_current_user,verify_password
-from app.core.config import GOOGLE_CLIENT_ID
 from passlib.hash import argon2
 from app.api.dependencies import admin_required
 from typing import List
@@ -333,71 +329,3 @@ def admin_create_teacher(
     db.refresh(user)
 
     return {"id": user.id, "email": user.email, "role": user.role,"detail": "Account created successfully"}
-
-class GoogleTokenIn(BaseModel):
-    id_token: str | None = None
-    access_token: str | None = None
-
-@router.post("/google")
-def google_login(payload: GoogleTokenIn, db: Session = Depends(get_db)):
-
-    # -----------------------
-    # 1. Handle id_token case
-    # -----------------------
-    if payload.id_token:
-        try:
-            idinfo = id_token.verify_oauth2_token(
-                payload.id_token,
-                grequests.Request(),
-                GOOGLE_CLIENT_ID
-            )
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid ID token")
-
-        email = idinfo.get("email")
-        name = idinfo.get("name") or "Google User"
-        google_sub = idinfo.get("sub")
-
-    # --------------------------
-    # 2. Handle access_token case
-    # --------------------------
-    elif payload.access_token:
-        resp = requests.get(
-            "https://www.googleapis.com/oauth2/v3/userinfo",
-            params={"access_token": payload.access_token},
-            timeout=5
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="Invalid access token")
-
-        profile = resp.json()
-        email = profile.get("email")
-        name = profile.get("name") or "Google User"
-        google_sub = profile.get("sub") or profile.get("id")
-
-    else:
-        raise HTTPException(status_code=400, detail="Token missing")
-
-    # --------------------------------
-    # 3. Find or create User in DB
-    # --------------------------------
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        user = User(
-            email=email,
-            name=name,
-            hashed_password=None,   # Google users don't have a local password
-            role="teacher",     # Default role — you may ask user to choose
-            google_sub=google_sub
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-    # --------------------------------
-    # 4. Create JWT using your EXISTING method
-    # --------------------------------
-    access_token = create_access_token({"sub": str(user.id)})
-
-
-    return {"access_token": access_token, "user": user}

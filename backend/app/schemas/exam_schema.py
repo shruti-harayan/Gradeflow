@@ -88,8 +88,6 @@ class MarksSaveRequest(BaseModel):
     question_rules: Optional[Dict[str, Any]] = None
 
 
-
-
 class MarkOut(BaseModel):
     student_id: int
     question_id: int
@@ -125,3 +123,12 @@ class ExamUpdate(BaseModel):
     subject_code: Optional[str]
     subject_name: Optional[str]
     question_rules: Optional[Dict[str, Any]] = None
+
+
+class SubjectCatalogOut(BaseModel):
+    id: int
+    subject_code: str
+    subject_name: str
+
+    class Config:
+        orm_mode = True

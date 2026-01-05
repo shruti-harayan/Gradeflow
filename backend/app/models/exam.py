@@ -101,3 +101,15 @@ class ExamSection(Base):
 
     exam = relationship("Exam", back_populates="sections")
     teacher = relationship("User")
+
+
+
+class SubjectCatalog(Base):
+    __tablename__ = "subjects_catalog"
+
+    id = Column(Integer, primary_key=True, index=True)
+    programme = Column(String, nullable=False, index=True)
+    semester = Column(Integer, nullable=False, index=True)
+    subject_code = Column(String, nullable=False)
+    subject_name = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)

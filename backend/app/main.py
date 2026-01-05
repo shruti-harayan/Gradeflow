@@ -1,9 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.database import Base, engine
-from app.api.routes import auth, exams
-from app import models
+from app.api.routes import auth, exams, subjects
 
 Base.metadata.create_all(bind=engine)
 
@@ -17,7 +15,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,9 +23,8 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(exams.router, prefix="/exams", tags=["exams"])
+app.include_router(subjects.router, prefix="/subjects", tags=["subjects"])
 
 @app.get("/")
 async def root():
     return {"status": "ok"}
-
-
