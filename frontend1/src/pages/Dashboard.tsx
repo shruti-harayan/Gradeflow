@@ -8,6 +8,7 @@ import {
   type ExamType,
 } from "../services/examService";
 import { deleteExam } from "../services/examService";
+import { api } from "../services/api";
 
 type SubjectCard = {
   id: number; // UI id
@@ -23,14 +24,26 @@ type SubjectCard = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
+  const [programme, setProgramme] = useState("");
+  const [catalogSemester, setCatalogSemester] = useState<number | "">("");
+  const [catalogSubjects, setCatalogSubjects] = useState<any[]>([]);
+  const [selectedCatalogSubjectId, setSelectedCatalogSubjectId] =
+    useState<string>("");
+  const [catalogLoading, setCatalogLoading] = useState(false);
+
+  const selectedCatalogSubject = catalogSubjects.find(
+    (s) => String(s.id) === selectedCatalogSubjectId
+  );
+  const showNoSubjectsMessage =
+    programme &&
+    catalogSemester &&
+    !catalogLoading &&
+    catalogSubjects.length === 0;
+
   const [academicYear, setAcademicYear] = React.useState("2025-2026");
   const [subjects, setSubjects] = React.useState<SubjectCard[]>([]);
   const [isCreating, setIsCreating] = React.useState(false);
-
-  const [newCode, setNewCode] = React.useState("");
-  const [newName, setNewName] = React.useState("");
   const [newExamType, setNewExamType] = React.useState<ExamType>("Internal");
-  const [newSemester, setNewSemester] = React.useState<number>(1);
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -68,16 +81,41 @@ export default function Dashboard() {
       setLoading(false);
     }
   }
-
   React.useEffect(() => {
     loadExams(); // initial load (no filters)
   }, []);
 
+  async function loadCatalogSubjects(programme: string, semester: number) {
+    try {
+      setCatalogLoading(true);
+
+      const res = await api.get("/subjects/catalog", {
+        params: { programme, semester },
+      });
+
+      setCatalogSubjects(res.data);
+    } catch (e) {
+      console.error("Failed to load subject catalog", e);
+      setCatalogSubjects([]);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+ React.useEffect(() => {
+  if (programme && catalogSemester) {
+    loadCatalogSubjects(programme, catalogSemester);
+    setSelectedCatalogSubjectId("");
+  }
+}, [programme, catalogSemester]);
+
+
   function resetForm() {
-    setNewCode("");
-    setNewName("");
+    setProgramme("");
+    setCatalogSemester("");
+    setCatalogSubjects([]);
+    setSelectedCatalogSubjectId("");
     setNewExamType("Internal");
-    setNewSemester(1);
   }
 
   function formatLocalDateTime(iso?: string) {
@@ -95,57 +133,48 @@ export default function Dashboard() {
 
   async function handleCreateExam(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!newCode.trim() || !newName.trim()) return;
+
+    if (!selectedCatalogSubject) {
+      alert("Please select programme, semester, and subject.");
+      return;
+    }
 
     if (!academicYear || academicYear.trim().length < 7) {
       alert("Please enter academic year (eg. 2025-2026)");
       return;
     }
 
-    const normalizedCode = newCode.trim().toUpperCase();
-    //Prevent exact duplicate exams
+    const subjectCode = selectedCatalogSubject.subject_code;
+    const subjectName = selectedCatalogSubject.subject_name;
+    const semester = Number(catalogSemester);
+
+    // Prevent exact duplicate exams (same subject + exam type + semester + year)
     const exactExamExists = subjects.some(
       (s) =>
-        s.code.toUpperCase() === normalizedCode &&
-        s.name.trim().toLowerCase() === newName.trim().toLowerCase() &&
+        s.code === subjectCode &&
+        s.name === subjectName &&
         s.examType === newExamType &&
-        s.semester === Number(newSemester) &&
+        s.semester === semester &&
         s.academicYear === academicYear
     );
 
     if (exactExamExists) {
       alert(
         `This exam already exists with the same details:\n\n` +
-          `• Subject code: ${normalizedCode}\n` +
-          `• Subject name: ${newName}\n` +
+          `• Subject: ${subjectName} (${subjectCode})\n` +
           `• Exam type: ${newExamType}\n` +
-          `• Semester: ${newSemester}\n` +
+          `• Semester: ${semester}\n` +
           `• Academic Year: ${academicYear}`
-      );
-      return;
-    }
-
-    //Subject code must map to ONE subject name only
-    const codeUsedForDifferentSubject = subjects.some(
-      (s) =>
-        s.code.toUpperCase() === normalizedCode &&
-        s.name.trim().toLowerCase() !== newName.trim().toLowerCase()
-    );
-
-    if (codeUsedForDifferentSubject) {
-      alert(
-        `Subject code "${normalizedCode}" is already used for a different subject.\n\n` +
-          `Each subject code must map to only one subject name.`
       );
       return;
     }
 
     try {
       const exam = await createExam({
-        subject_code: normalizedCode,
-        subject_name: newName.trim(),
+        subject_code: subjectCode,
+        subject_name: subjectName,
         exam_type: newExamType,
-        semester: Number(newSemester),
+        semester,
         academic_year: academicYear,
       });
 
@@ -168,7 +197,7 @@ export default function Dashboard() {
       resetForm();
       setIsCreating(false);
 
-      //  navigate ONLY after successful creation
+      // Navigate after successful creation
       navigate(
         `/marks-entry?examId=${exam.id}` +
           `&subject=${encodeURIComponent(exam.subject_code)}` +
@@ -278,7 +307,7 @@ export default function Dashboard() {
           onClick={() => setIsCreating((prev) => !prev)}
           className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow shadow-emerald-500/40 hover:bg-emerald-600"
         >
-          {isCreating ? "Close form" : "+ New subject / exam"}
+          {isCreating ? "Close form" : "+ New exam"}
         </button>
       </div>
 
@@ -303,34 +332,107 @@ export default function Dashboard() {
           </h2>
 
           <div className="grid gap-4 md:grid-cols-5 text-xs">
+            {/* Programme */}
             <div className="flex flex-col gap-1">
-              <label className="text-slate-300">Subject code</label>
-              <input
-                type="text"
-                value={newCode}
-                onChange={(e) => setNewCode(e.target.value)}
-                placeholder="CS101"
-                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
+              <label className="text-slate-300">Programme</label>
+              <select
+                value={programme}
+                onChange={(e) => setProgramme(e.target.value)}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+              >
+                <option value="">Select programme</option>
+                <option value="B.Com">B.Com. (Bachelor of Commerce)</option>
+                <option value="B.Com (Accounting & Finance)">
+                  B.Com. (Accounting & Finance)
+                </option>
+                <option value="B.Com (Banking & Insurance)">
+                  B.Com. (Banking & Insurance)
+                </option>
+                <option value="B.Com. (Financial Markets)">
+                  B.Com. (Financial Markets)
+                </option>
+                <option value="B.Sc. (Information Technology">
+                  B.Sc. (Information Technology)
+                </option>
+                <option value="B.M.S. (B.Com. in Management Studies">
+                  B.M.S. (B.Com. in Management Studies)
+                </option>
+                <option value="B.B.A. (B.Com. in Business Administration)">
+                  B.B.A. (B.Com. in Business Administration)
+                </option>
+                <option value="B.B.A. (B.Com. in Business Administration) (Marketing Management)">
+                  B.B.A. (B.Com. in Business Administration) (Marketing
+                  Management)
+                </option>
+                <option value="M.Com. (Advance Accountancy)">
+                  M.Com. (Advance Accountancy)
+                </option>
+                <option value="M.Com. (Business Management)">
+                  M.Com. (Business Management)
+                </option>
+                <option value="M.Sc. (Information Technology)">
+                  M.Sc. (Information Technology)
+                </option>
+              </select>
             </div>
 
+            {/* Semester */}
+            <div className="flex flex-col gap-1">
+              <label className="text-slate-300">Semester</label>
+              <select
+                value={catalogSemester}
+                onChange={(e) => setCatalogSemester(Number(e.target.value))}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+              >
+                <option value="">Select semester</option>
+                {Array.from({ length: 8 }, (_, i) => i + 1).map((s) => (
+                  <option key={s} value={s}>
+                    Sem {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Subject */}
             <div className="flex flex-col gap-1 md:col-span-2">
-              <label className="text-slate-300">Subject name</label>
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Algorithms"
-                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
+              <label className="text-slate-300">Subject</label>
+
+              <select
+                value={selectedCatalogSubjectId}
+                onChange={(e) => setSelectedCatalogSubjectId(e.target.value)}
+                disabled={!catalogSubjects.length}
+                className={
+                  "rounded-md border px-3 py-2 text-slate-100 " +
+                  (catalogSubjects.length
+                    ? "border-slate-700 bg-slate-900"
+                    : "border-slate-700 bg-slate-900/60 cursor-not-allowed")
+                }
+              >
+                <option value="">Select subject</option>
+                {catalogSubjects.map((s) => (
+                  <option key={s.id} value={String(s.id)}>
+                    {s.subject_name} ({s.subject_code})
+                  </option>
+                ))}
+              </select>
+
+
+              {/* Inline message when no subjects exist */}
+              {showNoSubjectsMessage && (
+                <span className="text-xs text-yellow-400 mt-1">
+                  No subjects are available for this programme in Semester{" "}
+                  {catalogSemester}.
+                </span>
+              )}
             </div>
 
+            {/* Exam type */}
             <div className="flex flex-col gap-1">
               <label className="text-slate-300">Exam type</label>
               <select
                 value={newExamType}
                 onChange={(e) => setNewExamType(e.target.value as ExamType)}
-                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
                 <option value="Internal">Internal</option>
                 <option value="External">External</option>
@@ -339,31 +441,19 @@ export default function Dashboard() {
                 <option value="Other">Other</option>
               </select>
             </div>
+          </div>
 
+          <div className="grid gap-4 md:grid-cols-2 text-xs">
+            {/* Academic Year */}
             <div className="flex flex-col gap-1">
-              <label className="text-slate-300">Semester</label>
-              <select
-                value={newSemester}
-                onChange={(e) => setNewSemester(Number(e.target.value))}
-                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              >
-                {Array.from({ length: 8 }, (_, i) => i + 1).map((sem) => (
-                  <option key={sem} value={sem}>
-                    Sem {sem}
-                  </option>
-                ))}
-              </select>
-              {/* Academic Year */}
-              <div className="flex items-center gap-2">
-                <label className="text-slate-400 text-xs">Academic Year</label>
-                <input
-                  type="text"
-                  value={academicYear}
-                  onChange={(e) => setAcademicYear(e.target.value)}
-                  placeholder="2025-2026"
-                  className="w-32 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
+              <label className="text-slate-300">Academic Year</label>
+              <input
+                type="text"
+                placeholder="Academic year (e.g. 2025-2026)"
+                value={academicYear}
+                onChange={(e) => setAcademicYear(e.target.value)}
+                className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+              />
             </div>
           </div>
 
@@ -501,9 +591,7 @@ export default function Dashboard() {
         {!loading && subjects.length === 0 && (
           <p className="text-xs text-slate-500">
             No exams yet. Click{" "}
-            <span className="font-semibold text-emerald-300">
-              “+ New subject / exam”
-            </span>{" "}
+            <span className="font-semibold text-emerald-300">“+ New exam”</span>{" "}
             to create the first one.
           </p>
         )}

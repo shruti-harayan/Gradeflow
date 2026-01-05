@@ -6,6 +6,7 @@ const API_BASE =
 
 export const api = axios.create({
   baseURL: API_BASE,
+ withCredentials: true,
 });
 
 export function setAuthToken(token: string | null) {

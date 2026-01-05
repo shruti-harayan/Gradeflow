@@ -857,7 +857,9 @@ export default function MarksEntry() {
             <span className="text-slate-400">Subject code</span>
             <input
               value={subjectCode}
-              onChange={(e) => setSubjectCode(e.target.value)}
+              disabled
+              readOnly
+              title="Subject details are fixed at exam creation"
               className="w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
@@ -865,7 +867,9 @@ export default function MarksEntry() {
             <span className="text-slate-400">Subject name</span>
             <input
               value={subjectName}
-              onChange={(e) => setSubjectName(e.target.value)}
+              disabled
+              readOnly 
+              title="Subject details are fixed at exam creation"
               className="w-40 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
