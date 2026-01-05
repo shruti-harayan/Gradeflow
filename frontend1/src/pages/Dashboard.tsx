@@ -29,17 +29,16 @@ export default function Dashboard() {
   const [catalogSubjects, setCatalogSubjects] = useState<any[]>([]);
   const [selectedCatalogSubjectId, setSelectedCatalogSubjectId] =
     useState<string>("");
-  const [catalogLoading, setCatalogLoading] = useState(false);
+
+  const [validSemesters, setValidSemesters] = useState<number[]>([]);
+  const [semesterLoading, setSemesterLoading] = useState(false);
 
   const selectedCatalogSubject = catalogSubjects.find(
     (s) => String(s.id) === selectedCatalogSubjectId
   );
-  const showNoSubjectsMessage =
-    programme &&
-    catalogSemester &&
-    !catalogLoading &&
-    catalogSubjects.length === 0;
 
+  const [programmes, setProgrammes] = useState<string[]>([]);
+  const [programmeLoading, setProgrammeLoading] = useState(false);
   const [academicYear, setAcademicYear] = React.useState("2025-2026");
   const [subjects, setSubjects] = React.useState<SubjectCard[]>([]);
   const [isCreating, setIsCreating] = React.useState(false);
@@ -87,28 +86,72 @@ export default function Dashboard() {
 
   async function loadCatalogSubjects(programme: string, semester: number) {
     try {
-      setCatalogLoading(true);
-
       const res = await api.get("/subjects/catalog", {
         params: { programme, semester },
       });
-
       setCatalogSubjects(res.data);
     } catch (e) {
       console.error("Failed to load subject catalog", e);
       setCatalogSubjects([]);
-    } finally {
-      setCatalogLoading(false);
     }
   }
 
- React.useEffect(() => {
-  if (programme && catalogSemester) {
-    loadCatalogSubjects(programme, catalogSemester);
-    setSelectedCatalogSubjectId("");
-  }
-}, [programme, catalogSemester]);
+  React.useEffect(() => {
+    if (programme && catalogSemester) {
+      loadCatalogSubjects(programme, catalogSemester);
+      setSelectedCatalogSubjectId("");
+    }
+  }, [programme, catalogSemester]);
 
+  React.useEffect(() => {
+    if (!programme) {
+      setValidSemesters([]);
+      setCatalogSemester("");
+      return;
+    }
+
+    async function loadValidSemesters() {
+      try {
+        setSemesterLoading(true);
+
+        const res = await api.get<number[]>("/subjects/valid-semesters", {
+          params: { programme },
+        });
+
+        setValidSemesters(res.data);
+
+        // reset semester if invalid
+        if (catalogSemester && !res.data.includes(Number(catalogSemester))) {
+          setCatalogSemester("");
+        }
+      } catch (e) {
+        console.error("Failed to load valid semesters", e);
+        setValidSemesters([]);
+        setCatalogSemester("");
+      } finally {
+        setSemesterLoading(false);
+      }
+    }
+
+    loadValidSemesters();
+  }, [programme]);
+
+  React.useEffect(() => {
+    async function loadProgrammes() {
+      try {
+        setProgrammeLoading(true);
+        const res = await api.get<string[]>("/subjects/programmes");
+        setProgrammes(res.data);
+      } catch (e) {
+        console.error("Failed to load programmes", e);
+        setProgrammes([]);
+      } finally {
+        setProgrammeLoading(false);
+      }
+    }
+
+    loadProgrammes();
+  }, []);
 
   function resetForm() {
     setProgramme("");
@@ -335,62 +378,53 @@ export default function Dashboard() {
             {/* Programme */}
             <div className="flex flex-col gap-1">
               <label className="text-slate-300">Programme</label>
+
               <select
                 value={programme}
                 onChange={(e) => setProgramme(e.target.value)}
+                disabled={programmeLoading}
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
                 <option value="">Select programme</option>
-                <option value="B.Com">B.Com. (Bachelor of Commerce)</option>
-                <option value="B.Com (Accounting & Finance)">
-                  B.Com. (Accounting & Finance)
-                </option>
-                <option value="B.Com (Banking & Insurance)">
-                  B.Com. (Banking & Insurance)
-                </option>
-                <option value="B.Com. (Financial Markets)">
-                  B.Com. (Financial Markets)
-                </option>
-                <option value="B.Sc. (Information Technology">
-                  B.Sc. (Information Technology)
-                </option>
-                <option value="B.M.S. (B.Com. in Management Studies">
-                  B.M.S. (B.Com. in Management Studies)
-                </option>
-                <option value="B.B.A. (B.Com. in Business Administration)">
-                  B.B.A. (B.Com. in Business Administration)
-                </option>
-                <option value="B.B.A. (B.Com. in Business Administration) (Marketing Management)">
-                  B.B.A. (B.Com. in Business Administration) (Marketing
-                  Management)
-                </option>
-                <option value="M.Com. (Advance Accountancy)">
-                  M.Com. (Advance Accountancy)
-                </option>
-                <option value="M.Com. (Business Management)">
-                  M.Com. (Business Management)
-                </option>
-                <option value="M.Sc. (Information Technology)">
-                  M.Sc. (Information Technology)
-                </option>
+
+                {programmes.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
               </select>
+
+              {programmeLoading && (
+                <span className="text-xs text-slate-400">
+                  Loading programmes…
+                </span>
+              )}
             </div>
 
             {/* Semester */}
             <div className="flex flex-col gap-1">
               <label className="text-slate-300">Semester</label>
+
               <select
                 value={catalogSemester}
                 onChange={(e) => setCatalogSemester(Number(e.target.value))}
+                disabled={!programme || semesterLoading}
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
                 <option value="">Select semester</option>
-                {Array.from({ length: 8 }, (_, i) => i + 1).map((s) => (
+
+                {validSemesters.map((s) => (
                   <option key={s} value={s}>
-                    Sem {s}
+                    Semester {s}
                   </option>
                 ))}
               </select>
+
+              {semesterLoading && (
+                <span className="text-xs text-slate-400">
+                  Loading semesters…
+                </span>
+              )}
             </div>
 
             {/* Subject */}
@@ -415,15 +449,6 @@ export default function Dashboard() {
                   </option>
                 ))}
               </select>
-
-
-              {/* Inline message when no subjects exist */}
-              {showNoSubjectsMessage && (
-                <span className="text-xs text-yellow-400 mt-1">
-                  No subjects are available for this programme in Semester{" "}
-                  {catalogSemester}.
-                </span>
-              )}
             </div>
 
             {/* Exam type */}
