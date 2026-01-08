@@ -854,7 +854,7 @@ export default function MarksEntry() {
         {error && <p className="text-red-500">{error}</p>}
         <div className="flex flex-wrap gap-3 text-xs">
           <div className="flex items-center gap-2">
-            <span className="text-slate-400">Subject code</span>
+            <span className="text-slate-400">Course code</span>
             <input
               value={subjectCode}
               disabled
@@ -864,11 +864,11 @@ export default function MarksEntry() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-slate-400">Subject name</span>
+            <span className="text-slate-400">Course name</span>
             <input
               value={subjectName}
               disabled
-              readOnly 
+              readOnly
               title="Subject details are fixed at exam creation"
               className="w-40 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
@@ -877,6 +877,8 @@ export default function MarksEntry() {
             <span className="text-slate-400">Exam type</span>
             <select
               value={examName}
+              disabled
+              title="Exam details are fixed at exam creation"
               onChange={(e) => setExamName(e.target.value)}
               className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
@@ -891,6 +893,8 @@ export default function MarksEntry() {
             <span className="text-slate-400">Semester</span>
             <select
               value={semester}
+              disabled
+              title="Semester is fixed at exam creation"
               onChange={(e) => setSemester(Number(e.target.value))}
               className="w-24 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
@@ -1801,7 +1805,6 @@ export default function MarksEntry() {
               title="Finalize the exam to lock it for further edits"
               className={
                 "w-full text-center font-bold rounded px-4 py-3 border-2 border-red-700 " +
-                
                 (disabled || isFinalized
                   ? "opacity-50 cursor-not-allowed bg-red-600/60 text-white"
                   : "bg-red-600 text-white hover:bg-red-700")

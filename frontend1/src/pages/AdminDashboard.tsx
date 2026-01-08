@@ -1,5 +1,5 @@
 // src/pages/AdminDashboard.tsx
-import React from "react";
+import React, { useState } from "react";
 import {
   getExams,
   downloadMergedExamCsv,
@@ -18,6 +18,20 @@ export default function AdminDashboard() {
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [filterProgramme, setFilterProgramme] = useState("");
+  const [filterSemester, setFilterSemester] = useState<number | "">("");
+  const [filterExamType, setFilterExamType] = useState("");
+  const [filterAcademicYear, setFilterAcademicYear] = useState(
+    "2025-2026" // or compute dynamically
+  );
+  const examTypes = ["Internal", "External", "Practical", "ATKT", "Other"];
+  const programmes = React.useMemo(() => {
+    const set = new Set<string>();
+    exams.forEach((e) => {
+      if (e.programme) set.add(e.programme);
+    });
+    return Array.from(set).sort();
+  }, [exams]);
 
   const [selectedTeacherId, setSelectedTeacherId] = React.useState<
     number | null
@@ -25,10 +39,6 @@ export default function AdminDashboard() {
   const [selectedTeacherName, setSelectedTeacherName] = React.useState<
     string | null
   >(null);
-
-  // filters
-  const [subjectFilter, setSubjectFilter] = React.useState<string>("");
-  const [yearFilter, setYearFilter] = React.useState<string>("");
 
   // validation / messages
   const [filterError, setFilterError] = React.useState<string | null>(null);
@@ -105,6 +115,9 @@ export default function AdminDashboard() {
     subject?: string;
     academic_year?: string;
     created_by?: number;
+    programme?: string;
+    semester?: number;
+    exam_type?: string;
   }) {
     setLoading(true);
     setFilterError(null);
@@ -127,17 +140,24 @@ export default function AdminDashboard() {
     try {
       // Build params once and send to backend
       const params: Record<string, string> = {};
-      if (filters?.subject && String(filters.subject).trim())
-        params.subject_name = String(filters.subject).trim();
-      if (filters?.academic_year && String(filters.academic_year).trim())
-        params.academic_year = String(filters.academic_year).trim();
-      if (
-        filters?.created_by !== undefined &&
-        filters?.created_by !== null &&
-        String(filters.created_by).trim()
-      ) {
-        params.created_by = String(filters.created_by).trim();
-      }
+
+      if (filters?.subject?.trim())
+        params.subject_name = filters.subject.trim();
+
+      if (filters?.academic_year?.trim())
+        params.academic_year = filters.academic_year.trim();
+
+      if (filters?.programme?.trim())
+        params.programme = filters.programme.trim();
+
+      if (filters?.exam_type?.trim())
+        params.exam_type = filters.exam_type.trim();
+
+      if (filters?.semester !== undefined)
+        params.semester = String(filters.semester);
+
+      if (filters?.created_by !== undefined)
+        params.created_by = String(filters.created_by);
 
       const data = await getExams(params);
 
@@ -318,77 +338,97 @@ export default function AdminDashboard() {
         Manage exams and download CSV reports created by teachers.
       </p>
 
-      {/* Filters: Subject name & Academic year */}
-      <div className="flex flex-wrap gap-3 items-center mt-3">
-        <input
-          type="text"
-          placeholder="Filter by subject name (eg. Algorithms)"
-          value={subjectFilter}
-          onChange={(e) => {
-            // only update local state — do NOT call loadExams here
-            setSubjectFilter(e.target.value);
-            setNoResultsMessage(null);
-            setFilterError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              // apply on Enter using current typed value
-              const val = (e.currentTarget as HTMLInputElement).value;
-              loadExams({ subject: val, academic_year: yearFilter });
-            }
-          }}
-          className="w-72 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 text-sm"
-        />
+      {/* 🔍 Admin Filters */}
+      <div className="grid gap-4 items-end md:grid-cols-[2fr_1fr_1fr_1fr_auto_auto] text-xs">
+        {/* Programme */}
+        <div className="flex flex-col gap-1">
+          <label className="text-slate-300">Programme</label>
+          <select
+            value={filterProgramme}
+            onChange={(e) => setFilterProgramme(e.target.value)}
+            className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+          >
+            <option value="">All programmes</option>
+            {programmes.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <input
-          type="text"
-          placeholder="Academic year (eg. 2025-2026)"
-          value={yearFilter}
-          onChange={(e) => {
-            // only update local state — do NOT call loadExams here
-            setYearFilter(e.target.value);
-            setNoResultsMessage(null);
-            setFilterError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              const val = (e.currentTarget as HTMLInputElement).value;
-              loadExams({ subject: subjectFilter, academic_year: val });
+        {/* Semester */}
+        <div className="flex flex-col gap-1">
+          <label className="text-slate-300">Semester</label>
+          <select
+            value={filterSemester}
+            onChange={(e) =>
+              setFilterSemester(e.target.value ? Number(e.target.value) : "")
             }
-          }}
-          className="w-36 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 text-sm"
-        />
+            className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+          >
+            <option value="">All semesters</option>
+            {[1, 2, 3, 4, 5, 6].map((s) => (
+              <option key={s} value={s}>
+                Semester {s}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Exam Type */}
+        <div className="flex flex-col gap-1">
+          <label className="text-slate-300">Exam type</label>
+          <select
+            value={filterExamType}
+            onChange={(e) => setFilterExamType(e.target.value)}
+            className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+          >
+            <option value="">All types</option>
+            {examTypes.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Academic Year */}
+        <div className="flex flex-col gap-1">
+          <label className="text-slate-300">Academic Year</label>
+          <input
+            value={filterAcademicYear}
+            onChange={(e) => setFilterAcademicYear(e.target.value)}
+            className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+          />
+        </div>
 
         <button
           type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            setNoResultsMessage(null);
-            setFilterError(null);
+          onClick={() =>
             loadExams({
-              subject: subjectFilter,
-              academic_year: yearFilter,
+              programme: filterProgramme || undefined,
+              semester: filterSemester || undefined,
+              exam_type: filterExamType || undefined,
+              academic_year: filterAcademicYear || undefined,
               created_by: selectedTeacherId ?? undefined,
-            });
-          }}
+            })
+          }
           className="rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
         >
           Apply
         </button>
-
         <button
           type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            setSubjectFilter("");
-            setYearFilter("");
-            setNoResultsMessage(null);
-            setFilterError(null);
+          onClick={() => {
+            setFilterProgramme("");
+            setFilterSemester("");
+            setFilterExamType("");
+            setFilterAcademicYear("2025-2026");
+            setSelectedTeacherId(null);
             loadExams({});
           }}
-          className="rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800"
+          className="rounded-md bg-gray-600 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-700"
         >
           Clear
         </button>
@@ -606,8 +646,10 @@ export default function AdminDashboard() {
               setSelectedTeacherName(name);
               // call loadExams for that teacher (admin-only filter)
               loadExams({
-                subject: subjectFilter,
-                academic_year: yearFilter,
+                programme: filterProgramme || undefined,
+                semester: filterSemester || undefined,
+                exam_type: filterExamType || undefined,
+                academic_year: filterAcademicYear || undefined,
                 created_by: id,
               });
             }}
@@ -628,8 +670,10 @@ export default function AdminDashboard() {
                   setSelectedTeacherName(null);
 
                   loadExams({
-                    subject: subjectFilter,
-                    academic_year: yearFilter,
+                    programme: filterProgramme || undefined,
+                    semester: filterSemester || undefined,
+                    exam_type: filterExamType || undefined,
+                    academic_year: filterAcademicYear || undefined,
                   });
                 }}
                 className="rounded border px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"

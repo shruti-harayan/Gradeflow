@@ -10,6 +10,7 @@ export type MainQuestionRule = {
 };
 
 export interface ExamCreatePayload {
+  programme: string;
   subject_code: string;
   subject_name: string;
   exam_type: ExamType;
@@ -19,7 +20,7 @@ export interface ExamCreatePayload {
 
 export interface ExamOut {
   id: number;
-
+  programme: string;
   subject_code: string;
   subject_name: string;
   exam_type: ExamType;
@@ -96,6 +97,9 @@ export async function getExams(params?: {
   subject_name?: string;
   academic_year?: string;
   created_by?: number;
+  programme?: string;
+  semester?: number;
+  exam_type?: string;
 }) {
   const p: Record<string, string> = {};
 
@@ -107,10 +111,13 @@ export async function getExams(params?: {
 
   if (params?.created_by !== undefined && params?.created_by !== null)
     p.created_by = String(params.created_by);
+  if (params?.programme) p.programme = params.programme;
+  if (params?.semester !== undefined)
+    p.semester = String(params.semester);
+  if (params?.exam_type) p.exam_type = params.exam_type;
 
   //  PASS PARAMS TO BACKEND
   const resp = await api.get<ExamOut[]>("/exams", { params: p });
-
   return resp.data;
 }
 

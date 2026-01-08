@@ -11,8 +11,8 @@ import { deleteExam } from "../services/examService";
 import { api } from "../services/api";
 
 type SubjectCard = {
-  id: number; // UI id
-  examId?: number; // backend exam id
+  id: number;
+  examId?: number;
   code: string;
   name: string;
   examType: ExamType;
@@ -214,6 +214,7 @@ export default function Dashboard() {
 
     try {
       const exam = await createExam({
+        programme: programme,
         subject_code: subjectCode,
         subject_name: subjectName,
         exam_type: newExamType,
@@ -374,11 +375,10 @@ export default function Dashboard() {
             Create new exam
           </h2>
 
-          <div className="grid gap-4 md:grid-cols-5 text-xs">
+          <div className="grid gap-4 md:grid-cols-6 text-xs">
             {/* Programme */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 md:col-span-2">
               <label className="text-slate-300">Programme</label>
-
               <select
                 value={programme}
                 onChange={(e) => setProgramme(e.target.value)}
@@ -386,25 +386,17 @@ export default function Dashboard() {
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
                 <option value="">Select programme</option>
-
                 {programmes.map((p) => (
                   <option key={p} value={p}>
                     {p}
                   </option>
                 ))}
               </select>
-
-              {programmeLoading && (
-                <span className="text-xs text-slate-400">
-                  Loading programmes…
-                </span>
-              )}
             </div>
 
             {/* Semester */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 md:col-span-1">
               <label className="text-slate-300">Semester</label>
-
               <select
                 value={catalogSemester}
                 onChange={(e) => setCatalogSemester(Number(e.target.value))}
@@ -412,37 +404,24 @@ export default function Dashboard() {
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
                 <option value="">Select semester</option>
-
                 {validSemesters.map((s) => (
                   <option key={s} value={s}>
                     Semester {s}
                   </option>
                 ))}
               </select>
-
-              {semesterLoading && (
-                <span className="text-xs text-slate-400">
-                  Loading semesters…
-                </span>
-              )}
             </div>
 
-            {/* Subject */}
+            {/* Course */}
             <div className="flex flex-col gap-1 md:col-span-2">
-              <label className="text-slate-300">Subject</label>
-
+              <label className="text-slate-300">Course</label>
               <select
                 value={selectedCatalogSubjectId}
                 onChange={(e) => setSelectedCatalogSubjectId(e.target.value)}
                 disabled={!catalogSubjects.length}
-                className={
-                  "rounded-md border px-3 py-2 text-slate-100 " +
-                  (catalogSubjects.length
-                    ? "border-slate-700 bg-slate-900"
-                    : "border-slate-700 bg-slate-900/60 cursor-not-allowed")
-                }
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
-                <option value="">Select subject</option>
+                <option value="">Select Course</option>
                 {catalogSubjects.map((s) => (
                   <option key={s.id} value={String(s.id)}>
                     {s.subject_name} ({s.subject_code})
@@ -452,7 +431,7 @@ export default function Dashboard() {
             </div>
 
             {/* Exam type */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 md:col-span-1">
               <label className="text-slate-300">Exam type</label>
               <select
                 value={newExamType}
@@ -466,15 +445,13 @@ export default function Dashboard() {
                 <option value="Other">Other</option>
               </select>
             </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2 text-xs">
             {/* Academic Year */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 md:col-span-1">
               <label className="text-slate-300">Academic Year</label>
               <input
                 type="text"
-                placeholder="Academic year (e.g. 2025-2026)"
+                placeholder="2025-2026"
                 value={academicYear}
                 onChange={(e) => setAcademicYear(e.target.value)}
                 className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
@@ -512,7 +489,7 @@ export default function Dashboard() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="text"
-          placeholder="Search by subject name"
+          placeholder="Search by course name"
           value={subjectFilter}
           onChange={(e) => setSubjectFilter(e.target.value)}
           className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
@@ -569,18 +546,20 @@ export default function Dashboard() {
 
             <div className="space-y-2 pr-6">
               <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                Subject
+                Course
               </p>
               <h2 className="text-lg font-semibold text-white">
                 {s.code} – {s.name}
               </h2>
 
               <div className="mt-2 flex items-center justify-between text-xs">
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-400">Exam type</span>
+                <div className="flex items-center gap-3">
+                  {/* Exam type */}
                   <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-indigo-200">
                     {s.examType}
                   </span>
+
+                  {/* Semester */}
                   <span className="text-[11px] text-slate-400">
                     Sem {s.semester}
                   </span>
