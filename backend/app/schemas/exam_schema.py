@@ -22,6 +22,7 @@ class StudentOut(BaseModel):
         from_attributes = True
         
 class ExamBase(BaseModel):
+    programme: str
     subject_code: str
     subject_name: str
     exam_type: str = Field(..., description="Internal, External, Practical, ATKT, Other")

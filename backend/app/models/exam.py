@@ -10,6 +10,7 @@ class Exam(Base):
     __tablename__ = "exams"
 
     id = Column(Integer, primary_key=True, index=True)
+    programme = Column(String, nullable=False)
     subject_code = Column(String, index=True, nullable=False)
     subject_name = Column(String, nullable=False)
     exam_type = Column(String, nullable=False)  

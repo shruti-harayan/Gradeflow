@@ -150,6 +150,9 @@ def unfinalize_exam(
 def list_exams(
     subject_name: Optional[str] = Query(None),
     academic_year: Optional[str] = Query(None),
+    exam_type: Optional[str] = Query(None),
+    semester: Optional[int] = Query(None),
+    programme: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     created_by: Optional[int] = Query(None),
     current_user: User = Depends(get_current_user),
@@ -171,6 +174,14 @@ def list_exams(
 
     if academic_year:
         q = q.filter(Exam.academic_year.ilike(f"%{academic_year.strip()}%"))
+    if programme:
+        q = q.filter(Exam.programme == programme)
+
+    if semester is not None:
+        q = q.filter(Exam.semester == semester)
+
+    if exam_type:
+        q = q.filter(Exam.exam_type == exam_type)
 
     exams = q.order_by(Exam.created_at.desc()).all()
     return exams
@@ -187,7 +198,8 @@ def create_exam(
     Exam.exam_type == exam_in.exam_type,
     Exam.semester == exam_in.semester,
     Exam.academic_year == exam_in.academic_year,
-    Exam.created_by == current_user.id,   
+    Exam.created_by == current_user.id, 
+    Exam.programme == exam_in.programme,
 ).first()
 
     if existing:
@@ -201,9 +213,8 @@ def create_exam(
     current_user.id,
     current_user.email,
 )
-
-
     exam = Exam(
+        programme=exam_in.programme,
         subject_code=exam_in.subject_code,
         subject_name=exam_in.subject_name,
         exam_type=exam_in.exam_type,
