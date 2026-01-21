@@ -14,6 +14,7 @@ class User(Base):
     role = Column(String, default="teacher")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_frozen = Column(Boolean, default=False, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
 
 class PasswordReset(Base):

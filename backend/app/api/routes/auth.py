@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 from app.utils.emailer import send_email
 from app.core.config import APP_BASE_URL
 
-
 router = APIRouter()
 
 class ForgotPasswordIn(BaseModel):
@@ -186,7 +185,7 @@ class ResetPasswordIn(BaseModel):
 # GET teachers
 @router.get("/admin/teachers", response_model=List[TeacherOut], dependencies=[Depends(admin_required)])
 def list_teachers(db: Session = Depends(get_db)):
-    teachers = db.query(User).filter(User.role == "teacher").all()
+    teachers = db.query(User).filter(User.role == "teacher",User.is_deleted == False).all()
     return teachers
 
 # Freeze
@@ -295,6 +294,12 @@ class LoginIn(BaseModel):
 @router.post("/login")
 def login(payload: LoginIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
+    if user.is_deleted:
+        raise HTTPException(
+            status_code=403,
+            detail="This account has been deactivated by admin"
+        )
+
     if not user:
         raise HTTPException(status_code=400, detail="Invalid email or password")
 
@@ -329,3 +334,53 @@ def admin_create_teacher(
     db.refresh(user)
 
     return {"id": user.id, "email": user.email, "role": user.role,"detail": "Account created successfully"}
+
+
+@router.post("/admin/users/{user_id}/deactivate")
+def deactivate_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.is_deleted:
+        raise HTTPException(
+            status_code=400,
+            detail="User already deactivated"
+        )
+
+    # Optional safety: prevent deleting yourself
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot deactivate your own account"
+        )
+
+    # Optional safety: prevent deleting last admin
+    if user.role == "admin":
+        admin_count = (
+            db.query(User)
+            .filter(User.role == "admin", User.is_deleted == False)
+            .count()
+        )
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one admin must exist"
+            )
+
+    user.is_deleted = True
+    user.is_frozen = True  # force read-only forever
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "message": "User deactivated permanently"
+    }
