@@ -12,7 +12,15 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 
+type TeacherLite = {
+  id: number;
+  name?: string | null;
+  email: string;
+  is_frozen: boolean;
+};
+
 export default function AdminDashboard() {
+  const [teachers, setTeachers] = React.useState<TeacherLite[]>([]);
   const [exams, setExams] = React.useState<ExamOut[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -87,6 +95,35 @@ export default function AdminDashboard() {
     document.addEventListener("submit", onSubmit, true); // capture phase
     return () => document.removeEventListener("submit", onSubmit, true);
   }, []);
+
+  React.useEffect(() => {
+    async function loadTeachers() {
+      try {
+        const res = await api.get("/auth/admin/teachers");
+        setTeachers(res.data || []);
+      } catch (e) {
+        console.error("Failed to load teachers", e);
+      }
+    }
+
+    loadTeachers();
+  }, []);
+
+  // Fetch all teachers for locked-by name resolution
+  const userNameById = React.useMemo(() => {
+    const map = new Map<number, string>();
+
+    teachers.forEach((t) => {
+      if (t.name) map.set(t.id, t.name);
+    });
+
+    // admin fallback (logged-in user)
+    if (user?.id) {
+      map.set(user.id, user.name ?? "Admin");
+    }
+
+    return map;
+  }, [teachers, user]);
 
   function groupExamsForAdmin(exams: ExamOut[]) {
     const map = new Map<string, ExamOut[]>();
@@ -641,10 +678,11 @@ export default function AdminDashboard() {
         {/* LEFT: Teacher list  */}
         <div className="lg:col-span-1 space-y-4">
           <TeacherList
+            teachers={teachers}
+            onTeachersUpdated={setTeachers}
             onSelectTeacher={(id, name) => {
               setSelectedTeacherId(id);
               setSelectedTeacherName(name);
-              // call loadExams for that teacher (admin-only filter)
               loadExams({
                 programme: filterProgramme || undefined,
                 semester: filterSemester || undefined,
@@ -752,20 +790,12 @@ export default function AdminDashboard() {
                       Locked by:{" "}
                       <span className="font-semibold text-slate-200">
                         {(() => {
-                          // Normalize values to numbers (or null) to avoid string/number mismatch
-                          const lockedBy =
+                          const lockedById =
                             e.locked_by == null ? null : Number(e.locked_by);
-                          const createdBy =
-                            e.created_by == null ? null : Number(e.created_by);
-                          // If both present and equal -> teacher locked it, otherwise admin
-                          if (
-                            lockedBy !== null &&
-                            createdBy !== null &&
-                            lockedBy === createdBy
-                          ) {
-                            return "Teacher";
-                          }
-                          return "Admin";
+
+                          if (!lockedById) return "Unknown";
+
+                          return userNameById.get(lockedById) ?? "Unknown user";
                         })()}
                       </span>
                     </p>
@@ -829,7 +859,10 @@ export default function AdminDashboard() {
                         handleDownloadMerged(g);
                       }}
                       title="Download merged CSV for all teachers"
-                      className="rounded px-3 py-2 text-xs border border-slate-700 text-slate-100 hover:bg-slate-800"
+                      className="rounded-md px-3 py-2 text-xs font-semibold 
+                      bg-slate-900 border border-slate-600 text-slate-100 
+                      hover:bg-slate-800 hover:border-slate-500 
+                      transition-colors duration-200 shadow-sm"
                     >
                       <svg
                         width="14"

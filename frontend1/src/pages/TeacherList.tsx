@@ -1,101 +1,122 @@
 // src/pages/admin/TeacherList.tsx
 import React from "react";
-import { api } from "../services/api";
 import { useAuth } from "../context/AuthContext";
+import { api } from "../services/api";
 
-type Teacher = {
+export type TeacherBase = {
   id: number;
   name?: string | null;
   email: string;
-  role: string;
   is_frozen: boolean;
-  created_at?: string;
 };
 
 type TeacherListProps = {
+  teachers: TeacherBase[];
   onSelectTeacher?: (teacherId: number, teacherName: string) => void;
+  onTeachersUpdated?: (teachers: TeacherBase[]) => void;
 };
 
-function TeacherList({ onSelectTeacher }: TeacherListProps) {
-  const [teachers, setTeachers] = React.useState<Teacher[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  const [showResetFor, setShowResetFor] = React.useState<number | null>(null);
-  const [tempPassword, setTempPassword] = React.useState<string | null>(null);
-
+function TeacherList({
+  teachers,
+  onSelectTeacher,
+  onTeachersUpdated,
+}: TeacherListProps) {
   const { user } = useAuth();
 
-  React.useEffect(() => {
-    async function load() {
-      setLoading(true);
-      setErr(null);
-      try {
-        const res = await api.get("/auth/admin/teachers");
-        setTeachers(res.data || []);
-      } catch (e: any) {
-        setErr(e?.response?.data?.detail || "Failed to load teachers");
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, []);
+  const [resetTarget, setResetTarget] = React.useState<TeacherBase | null>(
+    null
+  );
+  const [resetPassword, setResetPassword] = React.useState("");
+  const [resetLoading, setResetLoading] = React.useState(false);
+  const [resetError, setResetError] = React.useState<string | null>(null);
+  const [tempPassword, setTempPassword] = React.useState<string | null>(null);
 
-  // toggle Freeze / Unfreeze
-  async function toggleFreeze(t: Teacher, e?: React.MouseEvent) {
+  async function handleDeactivateTeacher(t: TeacherBase, e?: React.MouseEvent) {
     e?.stopPropagation();
-    try {
-      const newFrozen = !t.is_frozen;
-      // optimistic update
-      setTeachers((prev) => prev.map((x) => (x.id === t.id ? { ...x, is_frozen: newFrozen } : x)));
 
+    const confirmText = prompt(
+      `⚠️ PERMANENT ACTION\n\n` +
+        `This will permanently deactivate this account.\n\n` +
+        `• User will NEVER be able to log in\n` +
+        `• All exams & marks will remain\n` +
+        `• This action CANNOT be undone\n\n` +
+        `Type DELETE to confirm:`
+    );
+
+    if (confirmText !== "DELETE") {
+      alert("Deactivation cancelled.");
+      return;
+    }
+
+    try {
+      await api.post(`/auth/admin/users/${t.id}/deactivate`);
+
+      // remove from UI immediately
+      onTeachersUpdated?.(teachers.filter((x) => x.id !== t.id));
+
+      alert("User account deactivated permanently.");
+    } catch (err: any) {
+      console.error("Deactivate failed", err);
+      alert(err?.response?.data?.detail || "Failed to deactivate account");
+    }
+  }
+
+  // 🔒 Freeze / Unfreeze (ADMIN only)
+  async function toggleFreeze(t: TeacherBase, e?: React.MouseEvent) {
+    e?.stopPropagation();
+
+    try {
       if (t.is_frozen) {
         await api.post(`/auth/admin/teachers/${t.id}/unfreeze`);
       } else {
         await api.post(`/auth/admin/teachers/${t.id}/freeze`);
       }
-      // success: keep optimistic state
+
+      // notify parent to update teacher list
+      onTeachersUpdated?.(
+        teachers.map((x) =>
+          x.id === t.id ? { ...x, is_frozen: !t.is_frozen } : x
+        )
+      );
     } catch (err: any) {
-      // revert on failure
-      setTeachers((prev) => prev.map((x) => (x.id === t.id ? { ...x, is_frozen: t.is_frozen } : x)));
       alert(err?.response?.data?.detail || "Action failed");
     }
   }
 
-  // Reset password (admin enters password manually)
-  async function handleResetPassword(t: Teacher, e?: React.MouseEvent) {
+  // 🔑 Reset password
+  function handleResetPassword(t: TeacherBase, e?: React.MouseEvent) {
     e?.stopPropagation();
-    if (user?.role !== "admin") {
-      alert("Only admins can reset passwords.");
-      return;
-    }
 
-    const newPassword = prompt("Enter new password for the teacher (min 6 chars):");
-    if (!newPassword) return;
-    if (newPassword.length < 6) {
-      alert("Password must be at least 6 characters.");
+    if (user?.role !== "admin") return;
+
+    setResetTarget(t);
+    setResetPassword("");
+    setTempPassword(null);
+    setResetError(null);
+  }
+  async function submitResetPassword() {
+    if (!resetTarget) return;
+
+    if (resetPassword.length < 6) {
+      setResetError("Password must be at least 6 characters.");
       return;
     }
 
     try {
-      const resp = await api.post(`/auth/admin-reset-password/${t.id}`, { password: newPassword });
-      // Prefer server-provided temporary password if present, otherwise show the one admin entered.
-      const temp = resp?.data?.temporary_password || resp?.data?.password || newPassword || null;
-      setTempPassword(temp);
-      setShowResetFor(t.id);
-      alert("Password updated. Share it securely with the teacher.");
+      setResetLoading(true);
+      setResetError(null);
+
+      const resp = await api.post(
+        `/auth/admin-reset-password/${resetTarget.id}`,
+        { password: resetPassword }
+      );
+
+      setTempPassword(resp?.data?.temporary_password || resetPassword);
     } catch (err: any) {
-      console.error("Reset failed", err);
-      alert(err?.response?.data?.detail || "Failed to reset password");
+      setResetError(err?.response?.data?.detail || "Failed to reset password");
+    } finally {
+      setResetLoading(false);
     }
-  }
-
-  if (loading) {
-    return <p className="text-slate-400">Loading teachers...</p>;
-  }
-
-  if (err) {
-    return <p className="text-red-400">{err}</p>;
   }
 
   return (
@@ -107,69 +128,149 @@ function TeacherList({ onSelectTeacher }: TeacherListProps) {
           <div
             key={t.id}
             role="button"
-            onClick={() => onSelectTeacher?.(t.id, t.name ?? `${t.email}`)}
+            onClick={() => onSelectTeacher?.(t.id, t.name ?? t.email)}
             className="cursor-pointer rounded-lg bg-slate-900 p-4 hover:bg-slate-800 transition"
             title="Click to view exams by this teacher"
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-white font-semibold">{t.name ?? "—"}</div>
-                <div className="text-slate-400 text-xs">{t.email}</div>
+            <div className="flex flex-col gap-3">
+              {/* Top row: identity */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-white font-semibold">
+                    {t.name ?? "—"}
+                  </div>
+                  <div className="text-slate-400 text-xs">{t.email}</div>
+                </div>
+
+                <span
+                  className={`text-xs italic ${
+                    t.is_frozen ? "text-amber-300" : "text-emerald-300"
+                  }`}
+                >
+                  {t.is_frozen ? "Frozen" : "Active"}
+                </span>
               </div>
 
-              <div className="flex items-center gap-3">
-                <div>
-                  {t.is_frozen ? (
-                    <span className="text-amber-300 text-xs italic">Frozen</span>
-                  ) : (
-                    <span className="text-emerald-300 text-xs italic">Active</span>
-                  )}
-                </div>
+              {/* Bottom row: actions */}
+              <div className="flex flex-wrap gap-2 justify-end">
+                <button
+                  onClick={(e) => toggleFreeze(t, e)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition
+        ${
+          t.is_frozen
+            ? "bg-slate-600 text-white hover:bg-slate-500"
+            : "bg-emerald-600 text-white hover:bg-emerald-700"
+        }`}
+                >
+                  {t.is_frozen ? "Unfreeze" : "Freeze"}
+                </button>
 
-                {/* Freeze / Reset buttons (stop propagation so they don't trigger select) */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => toggleFreeze(t, e)}
-                    className={`px-3 py-1 rounded-md text-sm ${
-                      t.is_frozen ? "bg-gray-600 text-white" : "bg-emerald-500 text-white hover:bg-emerald-600"
-                    }`}
-                  >
-                    {t.is_frozen ? "Unfreeze" : "Freeze"}
-                  </button>
+                <button
+                  onClick={(e) => handleResetPassword(t, e)}
+                  className="px-3 py-1.5 rounded-md text-xs font-semibold
+        bg-indigo-600 text-white hover:bg-indigo-700 transition"
+                >
+                  Reset password
+                </button>
 
+                {user?.role === "admin" && (
                   <button
-                    onClick={(e) => handleResetPassword(t, e)}
-                    className="px-3 py-1 rounded-md bg-indigo-600 text-white text-sm"
+                    onClick={(e) => handleDeactivateTeacher(t, e)}
+                    className="px-3 py-1.5 rounded-md text-xs font-semibold
+          bg-red-700 text-white hover:bg-red-800 transition"
                   >
-                    Reset password
+                    Deactivate
                   </button>
-                </div>
+                )}
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Modal-like area to show temporary password */}
-      {showResetFor && (
-        <div className="fixed inset-0 flex items-end md:items-center justify-center p-4 pointer-events-none">
-          <div className="pointer-events-auto bg-slate-900 rounded-md p-4 w-full max-w-md">
-            <h3 className="text-white font-semibold text-lg">Reset password</h3>
-            <p className="text-slate-300 mt-2">Temporary password (copy and share securely):</p>
-            <div className="mt-3 bg-slate-800 p-3 rounded">
-              <code className="text-sm text-emerald-300 break-all">{tempPassword ?? "—"}</code>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                className="px-3 py-1 bg-gray-600 rounded text-white"
-                onClick={() => {
-                  setShowResetFor(null);
-                  setTempPassword(null);
-                }}
-              >
-                Close
-              </button>
-            </div>
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-md rounded-lg bg-slate-900 p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-white">Reset password</h3>
+
+            <p className="mt-1 text-sm text-slate-400">
+              Teacher:{" "}
+              <span className="text-slate-200 font-medium">
+                {resetTarget.name ?? resetTarget.email}
+              </span>
+            </p>
+
+            {/* INPUT PHASE */}
+            {!tempPassword && (
+              <>
+                <input
+                  type="password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="Enter new password"
+                  className="mt-4 w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+
+                {resetError && (
+                  <p className="mt-2 text-xs text-red-400">{resetError}</p>
+                )}
+
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    onClick={() => setResetTarget(null)}
+                    className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    onClick={submitResetPassword}
+                    disabled={resetLoading}
+                    className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {resetLoading ? "Resetting..." : "Reset password"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* SUCCESS PHASE */}
+            {tempPassword && (
+              <>
+                <p className="mt-4 text-sm text-slate-300">
+                  Temporary password (copy & share securely):
+                </p>
+
+                <div className="mt-2 flex items-center justify-between rounded bg-slate-800 px-3 py-2">
+                  <code className="text-emerald-300 text-sm">
+                    {tempPassword}
+                  </code>
+
+                  <button
+                    onClick={() => navigator.clipboard.writeText(tempPassword)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300"
+                  >
+                    Copy
+                  </button>
+                </div>
+
+                <p className="mt-2 text-xs text-amber-400">
+                  ⚠ This password will not be shown again.
+                </p>
+
+                <div className="mt-5 flex justify-end">
+                  <button
+                    onClick={() => {
+                      setResetTarget(null);
+                      setTempPassword(null);
+                    }}
+                    className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                  >
+                    Done
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

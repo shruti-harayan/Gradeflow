@@ -9,6 +9,7 @@ import {
 } from "../services/examService";
 import { deleteExam } from "../services/examService";
 import { api } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 type SubjectCard = {
   id: number;
@@ -23,7 +24,7 @@ type SubjectCard = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-
+  const { user } = useAuth();
   const [programme, setProgramme] = useState("");
   const [catalogSemester, setCatalogSemester] = useState<number | "">("");
   const [catalogSubjects, setCatalogSubjects] = useState<any[]>([]);
@@ -334,6 +335,12 @@ export default function Dashboard() {
       alert("Failed to delete exam. Check console for details.");
     }
   }
+  // Disable exam creation if user is frozen
+  React.useEffect(() => {
+    if (user?.is_frozen && isCreating) {
+      setIsCreating(false);
+    }
+  }, [user?.is_frozen]);
 
   return (
     <div className="space-y-8">
@@ -344,12 +351,30 @@ export default function Dashboard() {
           <p className="text-xs text-slate-400">
             Create exams, enter marks, and export CSV files.
           </p>
+          {user?.is_frozen && (
+            <div className="rounded-lg border border-amber-700 bg-amber-900/40 px-4 py-3 text-sm text-amber-200">
+              <span className="font-semibold">Account frozen:</span> You can
+              view exams and exports, but cannot create new exams or modify
+              data. Please contact the administrator.
+            </div>
+          )}
         </div>
 
         <button
           type="button"
           onClick={() => setIsCreating((prev) => !prev)}
-          className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow shadow-emerald-500/40 hover:bg-emerald-600"
+          disabled={user?.is_frozen}
+          className={
+            "inline-flex items-center rounded-lg px-4 py-2 text-xs font-semibold shadow " +
+            (user?.is_frozen
+              ? "bg-slate-600 text-slate-300 cursor-not-allowed"
+              : "bg-emerald-500 text-white shadow-emerald-500/40 hover:bg-emerald-600")
+          }
+          title={
+            user?.is_frozen
+              ? "Your account is frozen by admin. You cannot create new exams."
+              : undefined
+          }
         >
           {isCreating ? "Close form" : "+ New exam"}
         </button>
