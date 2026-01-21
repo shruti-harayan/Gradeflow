@@ -1,4 +1,4 @@
-import React from "react";
+
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -12,8 +12,21 @@ import CreateTeacher from "./pages/CreateTeacher";
 import TeacherList from "./pages/TeacherList";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import { useState, useEffect } from 'react';
 
 export default function App() {
+  const [teachers, setTeachers] = useState([]);
+
+  useEffect(() => {
+    // Fetch teachers from your API
+    const fetchTeachers = async () => {
+      const response = await fetch('/api/teachers'); // adjust endpoint
+      const data = await response.json();
+      setTeachers(data);
+    };
+    fetchTeachers();
+  }, []);
+
   return (
     <div className="min-h-screen bg-linear-to-b from-gray-900 via-gray-800 to-gray-900 text-gray-100">
       <Header />
@@ -70,7 +83,7 @@ export default function App() {
             path="/admin/teachers"
             element={
               <ProtectedRoute allowedRoles={["admin"]}>
-                <TeacherList />
+                <TeacherList teachers={teachers} />
               </ProtectedRoute>
             }
           />

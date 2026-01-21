@@ -21,9 +21,6 @@ export default function Signup() {
   setError(null);
   setLoading(true);
 
-  // build payload once
-  const payload = { name, email, password, role }; 
-
   try {
     await signup(name, email, password, role);
 
