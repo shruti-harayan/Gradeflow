@@ -1,5 +1,5 @@
 // src/pages/AdminDashboard.tsx
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   getExams,
   downloadMergedExamCsv,
@@ -11,6 +11,13 @@ import TeacherList from "./TeacherList";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
+import { addSubjectToCatalog } from "../services/subjectService";
+import {
+  deleteCatalogSubject,
+  fetchProgrammes,
+  fetchValidSemesters,
+  searchCatalogSubjects,
+} from "../services/catalogService";
 
 type TeacherLite = {
   id: number;
@@ -26,20 +33,81 @@ export default function AdminDashboard() {
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [semesterLoaded, setSemesterLoaded] = useState(false);
+  const [filterSemesterLoaded, setFilterSemesterLoaded] = useState(false);
+  const [showAddSubject, setShowAddSubject] = useState(false);
+  const [semester, setSemester] = useState<number | null>(null);
+  const [subjectCode, setSubjectCode] = useState("");
+  const [subjectName, setSubjectName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [programmes, setProgrammes] = useState<string[]>([]);
+  const [programme, setProgramme] = useState("");
+
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+  const [validSemesters, setValidSemesters] = useState<number[]>([]);
+  const [programmeLoading, setProgrammeLoading] = useState(false);
+  const [semesterLoading, setSemesterLoading] = useState(false);
+
   const [filterProgramme, setFilterProgramme] = useState("");
   const [filterSemester, setFilterSemester] = useState<number | "">("");
   const [filterExamType, setFilterExamType] = useState("");
+  const [validFilterSemesters, setValidFilterSemesters] = useState<number[]>(
+    [],
+  );
+  const [filterSemesterLoading, setFilterSemesterLoading] = useState(false);
   const [filterAcademicYear, setFilterAcademicYear] = useState(
-    "2025-2026" // or compute dynamically
+    "2025-2026", // or compute dynamically
   );
   const examTypes = ["Internal", "External", "Practical", "ATKT", "Other"];
-  const programmes = React.useMemo(() => {
-    const set = new Set<string>();
-    exams.forEach((e) => {
-      if (e.programme) set.add(e.programme);
-    });
-    return Array.from(set).sort();
-  }, [exams]);
+
+  const [showDeleteSubject, setShowDeleteSubject] = useState(false);
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const [selectedSubject, setSelectedSubject] = useState<any | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadProgrammes() {
+      try {
+        setProgrammeLoading(true);
+        const data = await fetchProgrammes();
+        setProgrammes(data);
+      } finally {
+        setProgrammeLoading(false);
+      }
+    }
+
+    loadProgrammes();
+  }, []);
+
+  useEffect(() => {
+    if (!programme) {
+      setValidSemesters([]);
+      setSemester(null);
+      setSemesterLoaded(false);
+      return;
+    }
+
+    async function loadSemesters() {
+      try {
+        setSemesterLoading(true);
+        setSemesterLoaded(false);
+        const data = await fetchValidSemesters(programme);
+        setValidSemesters(data);
+      } finally {
+        setSemesterLoading(false);
+        setSemesterLoaded(true);
+      }
+    }
+
+    loadSemesters();
+  }, [programme]);
 
   const [selectedTeacherId, setSelectedTeacherId] = React.useState<
     number | null
@@ -51,7 +119,7 @@ export default function AdminDashboard() {
   // validation / messages
   const [filterError, setFilterError] = React.useState<string | null>(null);
   const [noResultsMessage, setNoResultsMessage] = React.useState<string | null>(
-    null
+    null,
   );
 
   // modal state for confirm lock/unlock
@@ -67,10 +135,10 @@ export default function AdminDashboard() {
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [pwdChangeError, setPwdChangeError] = React.useState<string | null>(
-    null
+    null,
   );
   const [pwdChangeSuccess, setPwdChangeSuccess] = React.useState<string | null>(
-    null
+    null,
   );
 
   // visibility toggles for each password field
@@ -84,6 +152,93 @@ export default function AdminDashboard() {
 
   // single debounce timer ref used by scheduleLoad
   const debounceRef = React.useRef<number | null>(null);
+
+  useEffect(() => {
+    if (showAddSubject) {
+      setFormError(null);
+      setFormSuccess(null);
+    }
+  }, [showAddSubject]);
+
+  async function handleAddSubject() {
+    if (
+      !programme ||
+      semester === null ||
+      Number(semester) < 1 ||
+      !subjectCode.trim() ||
+      !subjectName.trim()
+    ) {
+      setFormError("All fields are required");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setFormError(null);
+      setFormSuccess(null);
+
+      await addSubjectToCatalog({
+        programme,
+        semester,
+        subject_code: subjectCode.trim().toUpperCase(),
+        subject_name: subjectName.trim(),
+      });
+
+      setFormSuccess("Subject added successfully");
+
+      // auto-close after short delay
+      setTimeout(() => {
+        resetAddSubjectForm();
+        setShowAddSubject(false);
+      }, 900);
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+
+      if (Array.isArray(detail)) {
+        // FastAPI validation errors
+        setFormError(detail.map((d) => d.msg).join(", "));
+      } else if (typeof detail === "string") {
+        setFormError(detail);
+      } else {
+        setFormError(
+          "This subject already exists for the selected programme and semester",
+        );
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function resetAddSubjectForm() {
+    setProgramme("");
+    setSemester(null);
+    setSubjectCode("");
+    setSubjectName("");
+
+    setFormError(null);
+    setFormSuccess(null);
+  }
+
+  useEffect(() => {
+    if (!showDeleteSubject || searchTerm.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    async function runSearch() {
+      try {
+        setSearchLoading(true);
+        const res = await searchCatalogSubjects(searchTerm);
+        setSearchResults(res);
+      } catch (e) {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }
+
+    runSearch();
+  }, [searchTerm, showDeleteSubject]);
 
   // Prevent accidental form submissions (page reload) coming from parent forms or implicit submits
   React.useEffect(() => {
@@ -167,7 +322,7 @@ export default function AdminDashboard() {
       if (!yearRe.test(v)) {
         setLoading(false);
         setFilterError(
-          'Academic year must be in format "YYYY-YYYY" (eg. 2025-2026).'
+          'Academic year must be in format "YYYY-YYYY" (eg. 2025-2026).',
         );
         setExams([]);
         return;
@@ -221,7 +376,7 @@ export default function AdminDashboard() {
           const matchFound = data.some((e: any) =>
             (e.subject_name || "")
               .toLowerCase()
-              .includes(params.subject_name!.toLowerCase())
+              .includes(params.subject_name!.toLowerCase()),
           );
           if (!matchFound) {
             noResults = true;
@@ -232,7 +387,7 @@ export default function AdminDashboard() {
           const yearMatch = data.some((e: any) =>
             String(e.academic_year || "")
               .toLowerCase()
-              .includes(params.academic_year!.toLowerCase())
+              .includes(params.academic_year!.toLowerCase()),
           );
           if (!yearMatch) {
             noResults = true;
@@ -263,6 +418,36 @@ export default function AdminDashboard() {
       setLoading(false);
     }
   }
+  useEffect(() => {
+    if (!filterProgramme) {
+      setValidFilterSemesters([]);
+      setFilterSemester("");
+      setFilterSemesterLoaded(false);
+      return;
+    }
+
+    async function loadFilterSemesters() {
+      try {
+        setFilterSemesterLoading(true);
+        setFilterSemesterLoaded(false);
+        setFilterSemester("");
+
+        const res = await api.get("/subjects/catalog/semesters", {
+          params: { programme: filterProgramme },
+        });
+
+        setValidFilterSemesters(res.data);
+      } catch (e) {
+        console.error("Failed to load semesters", e);
+        setValidFilterSemesters([]);
+      } finally {
+        setFilterSemesterLoading(false);
+        setFilterSemesterLoaded(true);
+      }
+    }
+
+    loadFilterSemesters();
+  }, [filterProgramme]);
 
   // On mount, load with no filters
   React.useEffect(() => {
@@ -285,15 +470,17 @@ export default function AdminDashboard() {
   // Toggle via API (kept same semantics as previously)
   async function toggleExamLockDirect(
     examId: number,
-    currentlyLocked: boolean
+    currentlyLocked: boolean,
   ) {
     try {
       if (currentlyLocked) {
         await unfinalizeExam(examId);
         setExams((prev) =>
           prev.map((ex) =>
-            ex.id === examId ? { ...ex, is_locked: false, locked_by: null } : ex
-          )
+            ex.id === examId
+              ? { ...ex, is_locked: false, locked_by: null }
+              : ex,
+          ),
         );
         showToast("Exam unlocked for editing.");
       } else {
@@ -302,8 +489,8 @@ export default function AdminDashboard() {
           prev.map((ex) =>
             ex.id === examId
               ? { ...ex, is_locked: true, locked_by: user?.id }
-              : ex
-          )
+              : ex,
+          ),
         );
         showToast("Exam finalized (locked).");
       }
@@ -342,7 +529,7 @@ export default function AdminDashboard() {
     try {
       await downloadMergedExamCsv(
         g.exams.map((e) => e.id),
-        filename
+        filename,
       );
       showToast("Merged CSV downloaded.");
     } catch (err) {
@@ -397,20 +584,31 @@ export default function AdminDashboard() {
         {/* Semester */}
         <div className="flex flex-col gap-1">
           <label className="text-slate-300">Semester</label>
+
           <select
             value={filterSemester}
             onChange={(e) =>
               setFilterSemester(e.target.value ? Number(e.target.value) : "")
             }
+            disabled={!filterProgramme || filterSemesterLoading}
             className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-white"
           >
             <option value="">All semesters</option>
-            {[1, 2, 3, 4, 5, 6].map((s) => (
+
+            {validFilterSemesters.map((s) => (
               <option key={s} value={s}>
                 Semester {s}
               </option>
             ))}
           </select>
+
+          {filterProgramme &&
+            filterSemesterLoaded &&
+            validFilterSemesters.length === 0 && (
+              <span className="text-xs text-yellow-400">
+                No semesters found for this programme
+              </span>
+            )}
         </div>
 
         {/* Exam Type */}
@@ -487,6 +685,21 @@ export default function AdminDashboard() {
         >
           + Create Teacher/Admin
         </Link>
+
+        <button
+          onClick={() => setShowAddSubject(true)}
+          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+        >
+          + Add Subject
+        </button>
+
+        <button
+          onClick={() => setShowDeleteSubject(true)}
+          className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white
+               hover:bg-red-800 transition"
+        >
+          Delete Subject
+        </button>
 
         {/* Change password button opens modal */}
         <button
@@ -620,13 +833,13 @@ export default function AdminDashboard() {
                   }
                   if (!newPassword || newPassword.length < 6) {
                     setPwdChangeError(
-                      "New password must be at least 6 characters."
+                      "New password must be at least 6 characters.",
                     );
                     return;
                   }
                   if (newPassword !== confirmPassword) {
                     setPwdChangeError(
-                      "New password and confirm password do not match."
+                      "New password and confirm password do not match.",
                     );
                     return;
                   }
@@ -891,6 +1104,236 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {/* Add Subject Modal */}
+      {showAddSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-md rounded-lg bg-slate-900 p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-white">
+              Add Subject to Catalog
+            </h3>
+
+            <div className="mt-4 space-y-3">
+              <select
+                value={programme}
+                onChange={(e) => setProgramme(e.target.value)}
+                disabled={programmeLoading}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+              >
+                <option value="">Select programme</option>
+                {programmes.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={semester ?? ""}
+                onChange={(e) =>
+                  setSemester(e.target.value ? Number(e.target.value) : null)
+                }
+                disabled={!programme || semesterLoading}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+              >
+                <option value="">Select semester</option>
+
+                {validSemesters.map((s) => (
+                  <option key={s} value={s}>
+                    Semester {s}
+                  </option>
+                ))}
+              </select>
+
+              {programme && semesterLoaded && validSemesters.length === 0 && (
+                <span className="text-xs text-yellow-400">
+                  No semesters available for this programme
+                </span>
+              )}
+
+              <input
+                placeholder="Subject Code (e.g. USIT.501)"
+                value={subjectCode}
+                onChange={(e) => setSubjectCode(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+              />
+
+              <input
+                placeholder="Subject Name"
+                value={subjectName}
+                onChange={(e) => setSubjectName(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+              />
+            </div>
+            {/* FORM ERROR */}
+            {formError && (
+              <div className="rounded-md bg-red-900/40 border border-red-700 px-3 py-2 text-sm text-red-300">
+                {formError}
+              </div>
+            )}
+            {/* FORM SUCCESS */}
+            {formSuccess && (
+              <div className="rounded-md bg-emerald-900/40 border border-emerald-700 px-3 py-2 text-sm text-emerald-300">
+                {formSuccess}
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                disabled={saving}
+                onClick={() => {
+                  resetAddSubjectForm();
+                  setShowAddSubject(false);
+                }}
+                className={`rounded-md border px-3 py-1.5 text-sm ${
+                  saving
+                    ? "border-slate-700 text-slate-500 cursor-not-allowed"
+                    : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                }`}
+              >
+                Cancel
+              </button>
+
+              <button
+                disabled={saving}
+                onClick={handleAddSubject}
+                className={`rounded-md px-4 py-1.5 text-sm font-semibold text-white transition ${
+                  saving
+                    ? "bg-emerald-600/60 cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {saving ? "Saving..." : "Add Subject"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Subject Modal */}
+      {showDeleteSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-lg rounded-lg bg-slate-900 p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-red-400">
+              Delete Subject from Catalog
+            </h3>
+
+            <p className="mt-1 text-xs text-slate-400">
+              ⚠ This will remove the subject from future exam creation. Existing
+              exams will NOT be affected.
+            </p>
+
+            {/* SEARCH INPUT */}
+            <input
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setSelectedSubject(null);
+              }}
+              placeholder="Type subject name (min 2 characters)"
+              className="mt-4 w-full rounded-md border border-slate-700
+                   bg-slate-800 px-3 py-2 text-white"
+            />
+
+            {searchLoading && (
+              <div className="mt-2 text-xs text-slate-400">
+                Searching subjects…
+              </div>
+            )}
+
+            {/* SEARCH RESULTS */}
+            {searchResults.length > 0 && (
+              <div className="mt-2 max-h-48 overflow-auto rounded border border-slate-700 bg-slate-800">
+                {searchResults.map((s) => (
+                  <div
+                    key={s.id}
+                    onClick={() => setSelectedSubject(s)}
+                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-slate-700
+                ${
+                  selectedSubject?.id === s.id
+                    ? "bg-slate-700 text-white"
+                    : "text-slate-200"
+                }`}
+                  >
+                    <div className="font-semibold">
+                      {s.subject_name} ({s.subject_code})
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {s.programme} • Semester {s.semester}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* SELECTED SUBJECT PREVIEW */}
+            {selectedSubject && (
+              <div className="mt-3 rounded bg-red-900/20 p-3 text-sm text-red-300">
+                You are about to delete:
+                <br />
+                <strong>
+                  {selectedSubject.subject_name} ({selectedSubject.subject_code}
+                  )
+                </strong>
+                <br />
+                {selectedSubject.programme} • Semester{" "}
+                {selectedSubject.semester}
+              </div>
+            )}
+
+            {deleteError && (
+              <p className="mt-2 text-xs text-red-400">{deleteError}</p>
+            )}
+
+            {/* ACTIONS */}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowDeleteSubject(false);
+                  setSearchTerm("");
+                  setSearchResults([]);
+                  setSelectedSubject(null);
+                }}
+                className="rounded-md border border-slate-700 px-3 py-1.5
+                     text-sm text-slate-300 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+
+              <button
+                disabled={!selectedSubject || deleteLoading}
+                onClick={async () => {
+                  if (!selectedSubject) return;
+
+                  try {
+                    setDeleteLoading(true);
+                    await deleteCatalogSubject(selectedSubject.id);
+
+                    setShowDeleteSubject(false);
+                    setSearchTerm("");
+                    setSearchResults([]);
+                    setSelectedSubject(null);
+                  } catch (e: any) {
+                    setDeleteError(
+                      e?.response?.data?.detail || "Failed to delete subject",
+                    );
+                  } finally {
+                    setDeleteLoading(false);
+                  }
+                }}
+                className={`rounded-md px-4 py-1.5 text-sm font-semibold text-white
+            ${
+              selectedSubject
+                ? "bg-red-700 hover:bg-red-800"
+                : "bg-red-700/50 cursor-not-allowed"
+            }`}
+              >
+                {deleteLoading ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal */}
       {modalOpen && modalExam && modalAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -921,7 +1364,7 @@ export default function AdminDashboard() {
                   if (modalExam && modalAction) {
                     toggleExamLockDirect(
                       modalExam.id,
-                      modalAction === "unlock"
+                      modalAction === "unlock",
                     );
                   }
                 }}
