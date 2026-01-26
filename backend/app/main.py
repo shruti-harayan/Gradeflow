@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine
 from app.api.routes import auth, exams, subjects
+from app.models import *
 
 Base.metadata.create_all(bind=engine)
 

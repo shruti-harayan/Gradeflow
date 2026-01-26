@@ -1,4 +1,5 @@
 # backend/app/api/routes/exams.py
+from sqlalchemy import select
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import UniqueConstraint
 from app.schemas.exam_schema import AdminCombinedMarksOut, ExamCreate, ExamMarksOut, ExamOut,ExamSectionCreate, ExamSectionOut, ExamUpdate,MarksSaveRequest
@@ -13,7 +14,9 @@ from app.api.dependencies import admin_required,get_current_user
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.exam import Exam, ExamSection
-
+from app.models.programme import Programme
+from app.schemas.programme import ProgrammeCreate, ProgrammeOut
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -1035,3 +1038,28 @@ def export_exam_csv(
         db=db,
         current_user=current_user,
     )
+
+
+@router.post("/admin/programmes", status_code=201)
+async def add_programme(
+    payload: ProgrammeCreate,
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(admin_required),
+):
+    existing = await db.execute(
+        select(Programme).where(Programme.name == payload.name)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(409, "Programme already exists")
+
+    programme = Programme(
+        name=payload.name.strip(),
+        total_semesters=payload.total_semesters,
+    )
+
+    db.add(programme)
+    await db.commit()
+    await db.refresh(programme)
+
+    return programme
+

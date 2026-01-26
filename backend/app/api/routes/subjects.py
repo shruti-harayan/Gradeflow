@@ -7,8 +7,21 @@ from app.database import get_db
 from app.schemas.subject import SubjectCatalogCreate
 from app.api.dependencies import get_current_user
 from app.models.user import User
+from app.models.programme import Programme
+from app.schemas.programme import ProgrammeCreate, ProgrammeOut
+import re
 
 router = APIRouter()
+
+def normalize_base_programme(name: str) -> str:
+    """
+    Removes 'part X', 'part-X', 'part I', etc. (case-insensitive)
+    and normalizes whitespace.
+    """
+    base = re.sub(r'\bpart\s*[-]?\s*\d+\b', '', name, flags=re.IGNORECASE)
+    base = re.sub(r'\bpart\s*[-]?\s*[ivx]+\b', '', base, flags=re.IGNORECASE)
+    return base.strip().lower()
+
 
 @router.get("/catalog", response_model=list[SubjectCatalogOut])
 def get_subjects_catalog(
@@ -28,46 +41,6 @@ def get_subjects_catalog(
     )
     return subjects
 
-
-@router.get("/valid-semesters")
-def get_valid_semesters(
-    programme: str = Query(..., description="Programme name"),
-    db: Session = Depends(get_db),
-):
-    """
-    Returns list of semesters for which at least one subject exists
-    for the given programme.
-    """
-    rows = (
-        db.query(SubjectCatalog.semester)
-        .filter(
-            SubjectCatalog.programme == programme,
-            SubjectCatalog.is_active == True,
-        )
-        .distinct()
-        .order_by(SubjectCatalog.semester.asc())
-        .all()
-    )
-
-    # rows = [(1,), (2,), (3,)]
-    return [r[0] for r in rows]
-
-
-@router.get("/programmes")
-def get_programmes(db: Session = Depends(get_db)):
-    """
-    Returns list of programmes for which at least one active subject exists.
-    """
-    rows = (
-        db.query(SubjectCatalog.programme)
-        .filter(SubjectCatalog.is_active == True)
-        .distinct()
-        .order_by(SubjectCatalog.programme.asc())
-        .all()
-    )
-
-    # rows = [("B.Com",), ("M.Sc. (Information Technology)",)]
-    return [r[0] for r in rows]
 
 @router.post("/catalog", status_code=201)
 def add_subject_to_catalog(
@@ -110,36 +83,9 @@ def add_subject_to_catalog(
     return subject
 
 
-@router.get("/catalog/programmes")
+@router.get("/catalog/programmes", response_model=list[ProgrammeOut])
 def get_programmes(db: Session = Depends(get_db)):
-    rows = (
-        db.query(SubjectCatalog.programme)
-        .filter(SubjectCatalog.is_active == 1)
-        .distinct()
-        .order_by(SubjectCatalog.programme)
-        .all()
-    )
-
-    return [r[0] for r in rows]
-
-
-@router.get("/catalog/semesters")
-def get_valid_semesters(
-    programme: str,
-    db: Session = Depends(get_db),
-):
-    rows = (
-        db.query(SubjectCatalog.semester)
-        .filter(
-            SubjectCatalog.programme == programme,
-            SubjectCatalog.is_active == 1,
-        )
-        .distinct()
-        .order_by(SubjectCatalog.semester)
-        .all()
-    )
-
-    return [r[0] for r in rows]
+    return db.query(Programme).order_by(Programme.name).all()
 
 
 @router.delete("/catalog/{subject_id}")
@@ -194,3 +140,58 @@ def search_subjects(
     )
 
     return rows
+
+
+@router.post(
+    "/catalog/programmes",
+    response_model=ProgrammeOut,
+    status_code=201
+)
+def create_programme(
+    payload: ProgrammeCreate,
+    db: Session = Depends(get_db),
+):
+    programme_code = payload.programme_code.strip().upper()
+    name = payload.name.strip()
+
+    existing = (
+    db.query(Programme)
+    .filter(Programme.programme_code == programme_code)
+    .all()
+    )
+
+    incoming_base = normalize_base_programme(name)
+
+    if existing:
+        existing_base = normalize_base_programme(existing[0].name)
+
+        if existing_base != incoming_base:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Programme code '{programme_code}' is already used for "
+                    f"'{existing[0].name}'. Please use a different code."
+                )
+            )
+
+        # compute semester_start correctly
+        semester_start = max(
+            p.semester_start + p.total_semesters
+            for p in existing
+        )
+    else:
+        semester_start = 1
+
+    
+    programme = Programme(
+        programme_code=programme_code,
+        name=name,
+        total_semesters=payload.total_semesters,
+        semester_start=semester_start,
+    )
+
+    db.add(programme)
+    db.commit()
+    db.refresh(programme)
+
+    return programme
