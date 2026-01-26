@@ -15,9 +15,9 @@ import { addSubjectToCatalog } from "../services/subjectService";
 import {
   deleteCatalogSubject,
   fetchProgrammes,
-  fetchValidSemesters,
   searchCatalogSubjects,
 } from "../services/catalogService";
+import type { Programme } from "../services/catalogService";
 
 type TeacherLite = {
   id: number;
@@ -33,22 +33,29 @@ export default function AdminDashboard() {
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [semesterLoaded, setSemesterLoaded] = useState(false);
-  const [filterSemesterLoaded, setFilterSemesterLoaded] = useState(false);
+  const [programmeCode, setProgrammeCode] = useState("");
+
+  const [programmeSuccess, setProgrammeSuccess] = useState<string | null>(null);
+  const [showAddProgramme, setShowAddProgramme] = useState(false);
+  const [programmeName, setProgrammeName] = useState("");
+  const [totalSemesters, setTotalSemesters] = useState<number | null>(null);
+  const [programmeSaving, setProgrammeSaving] = useState(false);
+  const [programmeError, setProgrammeError] = useState<string | null>(null);
+
   const [showAddSubject, setShowAddSubject] = useState(false);
   const [semester, setSemester] = useState<number | null>(null);
   const [subjectCode, setSubjectCode] = useState("");
   const [subjectName, setSubjectName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [programmes, setProgrammes] = useState<string[]>([]);
-  const [programme, setProgramme] = useState("");
+
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
+  const [programme, setProgramme] = useState<string>("");
 
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
   const [validSemesters, setValidSemesters] = useState<number[]>([]);
   const [programmeLoading, setProgrammeLoading] = useState(false);
-  const [semesterLoading, setSemesterLoading] = useState(false);
 
   const [filterProgramme, setFilterProgramme] = useState("");
   const [filterSemester, setFilterSemester] = useState<number | "">("");
@@ -56,7 +63,7 @@ export default function AdminDashboard() {
   const [validFilterSemesters, setValidFilterSemesters] = useState<number[]>(
     [],
   );
-  const [filterSemesterLoading, setFilterSemesterLoading] = useState(false);
+
   const [filterAcademicYear, setFilterAcademicYear] = useState(
     "2025-2026", // or compute dynamically
   );
@@ -73,11 +80,20 @@ export default function AdminDashboard() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (programmeSuccess) {
+      const t = setTimeout(() => setProgrammeSuccess(null), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [programmeSuccess]);
+
+  useEffect(() => {
     async function loadProgrammes() {
       try {
         setProgrammeLoading(true);
         const data = await fetchProgrammes();
         setProgrammes(data);
+      } catch (e) {
+        console.error("Failed to load programmes", e);
       } finally {
         setProgrammeLoading(false);
       }
@@ -90,24 +106,27 @@ export default function AdminDashboard() {
     if (!programme) {
       setValidSemesters([]);
       setSemester(null);
-      setSemesterLoaded(false);
+
       return;
     }
 
-    async function loadSemesters() {
-      try {
-        setSemesterLoading(true);
-        setSemesterLoaded(false);
-        const data = await fetchValidSemesters(programme);
-        setValidSemesters(data);
-      } finally {
-        setSemesterLoading(false);
-        setSemesterLoaded(true);
-      }
+    const selectedProgramme = programmes.find((p) => p.name === programme);
+
+    if (!selectedProgramme) {
+      setValidSemesters([]);
+      setSemester(null);
+      return;
     }
 
-    loadSemesters();
-  }, [programme]);
+    const start = selectedProgramme.semester_start ?? 1;
+
+    const semesters = Array.from(
+      { length: selectedProgramme.total_semesters },
+      (_, i) => start + i,
+    );
+
+    setValidSemesters(semesters);
+  }, [programme, programmes]);
 
   const [selectedTeacherId, setSelectedTeacherId] = React.useState<
     number | null
@@ -185,12 +204,9 @@ export default function AdminDashboard() {
       });
 
       setFormSuccess("Subject added successfully");
-
-      // auto-close after short delay
-      setTimeout(() => {
-        resetAddSubjectForm();
-        setShowAddSubject(false);
-      }, 900);
+      setSubjectCode("");
+      setSubjectName("");
+      setSemester(null);
     } catch (e: any) {
       const detail = e?.response?.data?.detail;
 
@@ -208,6 +224,54 @@ export default function AdminDashboard() {
       setSaving(false);
     }
   }
+
+  async function handleAddProgramme() {
+    if (
+      !programmeCode.trim() ||
+      !programmeName.trim() ||
+      !totalSemesters ||
+      totalSemesters < 1
+    ) {
+      setProgrammeError("All fields are required");
+      setProgrammeSuccess(null);
+      return;
+    }
+
+    try {
+      setProgrammeSaving(true);
+      setProgrammeError(null);
+      setProgrammeSuccess(null);
+
+      await api.post("/subjects/catalog/programmes", {
+        programme_code: programmeCode.trim().toUpperCase(),
+        name: programmeName.trim(),
+        total_semesters: totalSemesters,
+      });
+
+      // refresh list
+      const updated = await fetchProgrammes();
+      setProgrammes(updated);
+
+      // success UI
+      setProgrammeSuccess("Programme added successfully 🎉");
+
+      // reset form
+      setProgrammeCode("");
+      setProgrammeName("");
+      setTotalSemesters(null);
+    } catch (e: any) {
+      setProgrammeError(e?.response?.data?.detail || "Failed to add programme");
+    } finally {
+      setProgrammeSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    if (formSuccess) {
+      const t = setTimeout(() => setFormSuccess(null), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [formSuccess]);
 
   function resetAddSubjectForm() {
     setProgramme("");
@@ -418,36 +482,33 @@ export default function AdminDashboard() {
       setLoading(false);
     }
   }
+
   useEffect(() => {
     if (!filterProgramme) {
       setValidFilterSemesters([]);
       setFilterSemester("");
-      setFilterSemesterLoaded(false);
       return;
     }
 
-    async function loadFilterSemesters() {
-      try {
-        setFilterSemesterLoading(true);
-        setFilterSemesterLoaded(false);
-        setFilterSemester("");
+    const selectedProgramme = programmes.find(
+      (p) => p.name === filterProgramme,
+    );
 
-        const res = await api.get("/subjects/catalog/semesters", {
-          params: { programme: filterProgramme },
-        });
-
-        setValidFilterSemesters(res.data);
-      } catch (e) {
-        console.error("Failed to load semesters", e);
-        setValidFilterSemesters([]);
-      } finally {
-        setFilterSemesterLoading(false);
-        setFilterSemesterLoaded(true);
-      }
+    if (!selectedProgramme) {
+      setValidFilterSemesters([]);
+      setFilterSemester("");
+      return;
     }
 
-    loadFilterSemesters();
-  }, [filterProgramme]);
+    const start = selectedProgramme.semester_start ?? 1;
+
+    const semesters = Array.from(
+      { length: selectedProgramme.total_semesters },
+      (_, i) => start + i,
+    );
+
+    setValidFilterSemesters(semesters);
+  }, [filterProgramme, programmes]);
 
   // On mount, load with no filters
   React.useEffect(() => {
@@ -573,9 +634,9 @@ export default function AdminDashboard() {
             className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-white"
           >
             <option value="">All programmes</option>
-            {programmes.map((p) => (
-              <option key={p} value={p}>
-                {p}
+            {programmes.filter(Boolean).map((p) => (
+              <option key={p.id} value={p.name}>
+                {p.name}
               </option>
             ))}
           </select>
@@ -590,7 +651,7 @@ export default function AdminDashboard() {
             onChange={(e) =>
               setFilterSemester(e.target.value ? Number(e.target.value) : "")
             }
-            disabled={!filterProgramme || filterSemesterLoading}
+            disabled={!filterProgramme}
             className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-white"
           >
             <option value="">All semesters</option>
@@ -602,13 +663,11 @@ export default function AdminDashboard() {
             ))}
           </select>
 
-          {filterProgramme &&
-            filterSemesterLoaded &&
-            validFilterSemesters.length === 0 && (
-              <span className="text-xs text-yellow-400">
-                No semesters found for this programme
-              </span>
-            )}
+          {filterProgramme && validFilterSemesters.length === 0 && (
+            <span className="text-xs text-yellow-400">
+              No semesters found for this programme
+            </span>
+          )}
         </div>
 
         {/* Exam Type */}
@@ -690,7 +749,7 @@ export default function AdminDashboard() {
           onClick={() => setShowAddSubject(true)}
           className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
         >
-          + Add Subject
+          + Add Course
         </button>
 
         <button
@@ -698,7 +757,14 @@ export default function AdminDashboard() {
           className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white
                hover:bg-red-800 transition"
         >
-          Delete Subject
+          ⚠ Delete Course
+        </button>
+
+        <button
+          onClick={() => setShowAddProgramme(true)}
+          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+        >
+          + Add Programme
         </button>
 
         {/* Change password button opens modal */}
@@ -1109,7 +1175,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="w-full max-w-md rounded-lg bg-slate-900 p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-white">
-              Add Subject to Catalog
+              Add Course to Existing Programme
             </h3>
 
             <div className="mt-4 space-y-3">
@@ -1120,9 +1186,9 @@ export default function AdminDashboard() {
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
                 <option value="">Select programme</option>
-                {programmes.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
+                {programmes.filter(Boolean).map((p) => (
+                  <option key={p.id} value={p.name}>
+                    {p.name}
                   </option>
                 ))}
               </select>
@@ -1132,7 +1198,7 @@ export default function AdminDashboard() {
                 onChange={(e) =>
                   setSemester(e.target.value ? Number(e.target.value) : null)
                 }
-                disabled={!programme || semesterLoading}
+                disabled={!programme}
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
                 <option value="">Select semester</option>
@@ -1144,21 +1210,21 @@ export default function AdminDashboard() {
                 ))}
               </select>
 
-              {programme && semesterLoaded && validSemesters.length === 0 && (
+              {programme && validSemesters.length === 0 && (
                 <span className="text-xs text-yellow-400">
                   No semesters available for this programme
                 </span>
               )}
 
               <input
-                placeholder="Subject Code (e.g. USIT.501)"
+                placeholder="Course Code (e.g. USIT.501)"
                 value={subjectCode}
                 onChange={(e) => setSubjectCode(e.target.value)}
                 className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white"
               />
 
               <input
-                placeholder="Subject Name"
+                placeholder="Course Name"
                 value={subjectName}
                 onChange={(e) => setSubjectName(e.target.value)}
                 className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white"
@@ -1202,7 +1268,7 @@ export default function AdminDashboard() {
                     : "bg-emerald-600 hover:bg-emerald-700"
                 }`}
               >
-                {saving ? "Saving..." : "Add Subject"}
+                {saving ? "Saving..." : "Add Course"}
               </button>
             </div>
           </div>
@@ -1214,11 +1280,11 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="w-full max-w-lg rounded-lg bg-slate-900 p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-red-400">
-              Delete Subject from Catalog
+              Delete Course from Catalog
             </h3>
 
             <p className="mt-1 text-xs text-slate-400">
-              ⚠ This will remove the subject from future exam creation. Existing
+              ⚠ This will remove the course from future exam creation. Existing
               exams will NOT be affected.
             </p>
 
@@ -1229,14 +1295,14 @@ export default function AdminDashboard() {
                 setSearchTerm(e.target.value);
                 setSelectedSubject(null);
               }}
-              placeholder="Type subject name (min 2 characters)"
+              placeholder="Type course name (min 2 characters)"
               className="mt-4 w-full rounded-md border border-slate-700
                    bg-slate-800 px-3 py-2 text-white"
             />
 
             {searchLoading && (
               <div className="mt-2 text-xs text-slate-400">
-                Searching subjects…
+                Searching courses…
               </div>
             )}
 
@@ -1328,6 +1394,89 @@ export default function AdminDashboard() {
             }`}
               >
                 {deleteLoading ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Programme Modal */}
+      {showAddProgramme && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-md rounded-lg bg-slate-900 p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-white">
+              Add New Programme
+            </h3>
+
+            <div className="mt-4 space-y-3">
+              {/* Programme Code */}
+              <input
+                placeholder="Programme Code (e.g. MSC_DS, BCA)"
+                value={programmeCode}
+                onChange={(e) => setProgrammeCode(e.target.value.toUpperCase())}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+              />
+
+              {/* Programme Name */}
+              <input
+                placeholder="Programme Name (e.g. M.Sc Data Science Part-I)"
+                value={programmeName}
+                onChange={(e) => setProgrammeName(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+              />
+
+              {/* Total Semesters */}
+              <input
+                type="number"
+                min={1}
+                placeholder="Total Semesters (e.g. 2, 4, 6)"
+                value={totalSemesters ?? ""}
+                onChange={(e) =>
+                  setTotalSemesters(
+                    e.target.value ? Number(e.target.value) : null,
+                  )
+                }
+                className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+              />
+
+              {programmeError && (
+                <div className="rounded-md bg-red-900/40 border border-red-700 px-3 py-2 text-sm text-red-300">
+                  {programmeError}
+                </div>
+              )}
+              {programmeSuccess && (
+                <div className="rounded-md bg-green-900/40 border border-green-700 px-3 py-2 text-sm text-green-300">
+                  {programmeSuccess}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                disabled={programmeSaving}
+                onClick={() => {
+                  setShowAddProgramme(false);
+                  setProgrammeCode("");
+                  setProgrammeName("");
+                  setTotalSemesters(null);
+                  setProgrammeError(null);
+                  setProgrammeSuccess(null);
+                }}
+                className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+
+              <button
+                disabled={programmeSaving}
+                onClick={handleAddProgramme}
+                className={`rounded-md px-4 py-1.5 text-sm font-semibold text-white ${
+                  programmeSaving
+                    ? "bg-indigo-600/60 cursor-not-allowed"
+                    : "bg-indigo-600 hover:bg-indigo-700"
+                }`}
+              >
+                {programmeSaving ? "Saving..." : "Add Programme"}
               </button>
             </div>
           </div>

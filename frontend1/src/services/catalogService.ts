@@ -1,7 +1,14 @@
 import {api} from "./api";
 
-export async function fetchProgrammes(): Promise<string[]> {
-  const res = await api.get("/subjects/catalog/programmes");
+export type Programme = {
+  id: number;
+  name: string;
+  total_semesters: number;
+  semester_start: number;
+};
+
+export async function fetchProgrammes(): Promise<Programme[]> {
+  const res = await api.get<Programme[]>("/subjects/catalog/programmes");
   return res.data;
 }
 
@@ -14,14 +21,4 @@ export async function searchCatalogSubjects(query: string) {
 
 export async function deleteCatalogSubject(subjectId: number) {
   return api.delete(`/subjects/catalog/${subjectId}`);
-}
-
-
-export async function fetchValidSemesters(
-  programme: string
-): Promise<number[]> {
-  const res = await api.get("/subjects/catalog/semesters", {
-    params: { programme },
-  });
-  return res.data;
 }

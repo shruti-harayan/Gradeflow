@@ -1,5 +1,5 @@
 // src/pages/Dashboard.tsx
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   createExam,
@@ -10,6 +10,7 @@ import {
 import { deleteExam } from "../services/examService";
 import { api } from "../services/api";
 import { useAuth } from "../context/AuthContext";
+import { fetchProgrammes, type Programme } from "../services/catalogService";
 
 type SubjectCard = {
   id: number;
@@ -25,20 +26,21 @@ type SubjectCard = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [programme, setProgramme] = useState("");
+
+  const [programme, setProgramme] = useState<string>("");
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
+
   const [catalogSemester, setCatalogSemester] = useState<number | "">("");
   const [catalogSubjects, setCatalogSubjects] = useState<any[]>([]);
   const [selectedCatalogSubjectId, setSelectedCatalogSubjectId] =
     useState<string>("");
 
   const [validSemesters, setValidSemesters] = useState<number[]>([]);
-  const [semesterLoading, setSemesterLoading] = useState(false);
 
   const selectedCatalogSubject = catalogSubjects.find(
-    (s) => String(s.id) === selectedCatalogSubjectId
+    (s) => String(s.id) === selectedCatalogSubjectId,
   );
 
-  const [programmes, setProgrammes] = useState<string[]>([]);
   const [programmeLoading, setProgrammeLoading] = useState(false);
   const [academicYear, setAcademicYear] = React.useState("2025-2026");
   const [subjects, setSubjects] = React.useState<SubjectCard[]>([]);
@@ -104,45 +106,39 @@ export default function Dashboard() {
     }
   }, [programme, catalogSemester]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!programme) {
       setValidSemesters([]);
       setCatalogSemester("");
       return;
     }
 
-    async function loadValidSemesters() {
-      try {
-        setSemesterLoading(true);
+    const selectedProgramme = programmes.find((p) => p.name === programme);
 
-        const res = await api.get<number[]>("/subjects/valid-semesters", {
-          params: { programme },
-        });
-
-        setValidSemesters(res.data);
-
-        // reset semester if invalid
-        if (catalogSemester && !res.data.includes(Number(catalogSemester))) {
-          setCatalogSemester("");
-        }
-      } catch (e) {
-        console.error("Failed to load valid semesters", e);
-        setValidSemesters([]);
-        setCatalogSemester("");
-      } finally {
-        setSemesterLoading(false);
-      }
+    if (!selectedProgramme) {
+      setValidSemesters([]);
+      setCatalogSemester("");
+      return;
     }
 
-    loadValidSemesters();
-  }, [programme]);
+   const start = selectedProgramme.semester_start ?? 1;
+
+const semesters = Array.from(
+  { length: selectedProgramme.total_semesters },
+  (_, i) => start + i
+);
+
+
+    setValidSemesters(semesters);
+  }, [programme, programmes]);
 
   React.useEffect(() => {
     async function loadProgrammes() {
       try {
         setProgrammeLoading(true);
-        const res = await api.get<string[]>("/subjects/programmes");
-        setProgrammes(res.data);
+
+        const data: Programme[] = await fetchProgrammes();
+        setProgrammes(data);
       } catch (e) {
         console.error("Failed to load programmes", e);
         setProgrammes([]);
@@ -199,7 +195,7 @@ export default function Dashboard() {
         s.name === subjectName &&
         s.examType === newExamType &&
         s.semester === semester &&
-        s.academicYear === academicYear
+        s.academicYear === academicYear,
     );
 
     if (exactExamExists) {
@@ -208,7 +204,7 @@ export default function Dashboard() {
           `• Subject: ${subjectName} (${subjectCode})\n` +
           `• Exam type: ${newExamType}\n` +
           `• Semester: ${semester}\n` +
-          `• Academic Year: ${academicYear}`
+          `• Academic Year: ${academicYear}`,
       );
       return;
     }
@@ -248,7 +244,7 @@ export default function Dashboard() {
           `&subject=${encodeURIComponent(exam.subject_code)}` +
           `&subjectName=${encodeURIComponent(exam.subject_name)}` +
           `&exam=${encodeURIComponent(exam.exam_type)}` +
-          `&sem=${encodeURIComponent(String(exam.semester))}`
+          `&sem=${encodeURIComponent(String(exam.semester))}`,
       );
     } catch (err: any) {
       if (err?.response?.status === 400) {
@@ -269,7 +265,7 @@ export default function Dashboard() {
         `&subject=${encodeURIComponent(subject.code)}` +
         `&subjectName=${encodeURIComponent(subject.name)}` +
         `&exam=${encodeURIComponent(subject.examType)}` +
-        `&sem=${encodeURIComponent(String(subject.semester))}`
+        `&sem=${encodeURIComponent(String(subject.semester))}`,
     );
   }
 
@@ -281,7 +277,7 @@ export default function Dashboard() {
       (subject as any).exam_id;
     if (!examId) {
       alert(
-        "Cannot determine exam id for this subject. Please open the marks page to export."
+        "Cannot determine exam id for this subject. Please open the marks page to export.",
       );
       return;
     }
@@ -302,7 +298,7 @@ export default function Dashboard() {
       (subject as any).academicYear ?? (subject as any).academic_year ?? "";
 
     const filename = `${safe(subjCode)}_${safe(subjName)}_${safe(
-      examType
+      examType,
     )}_Sem${safe(semester)}${academicYear ? "_" + safe(academicYear) : ""}.csv`;
 
     try {
@@ -321,7 +317,7 @@ export default function Dashboard() {
         "• All roll numbers\n" +
         "• All marks\n" +
         "• All questions\n\n" +
-        "This action CANNOT be undone."
+        "This action CANNOT be undone.",
     );
 
     if (!ok) return;
@@ -412,8 +408,8 @@ export default function Dashboard() {
               >
                 <option value="">Select programme</option>
                 {programmes.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
+                  <option key={p.id} value={p.name}>
+                    {p.name}
                   </option>
                 ))}
               </select>
@@ -424,8 +420,12 @@ export default function Dashboard() {
               <label className="text-slate-300">Semester</label>
               <select
                 value={catalogSemester}
-                onChange={(e) => setCatalogSemester(Number(e.target.value))}
-                disabled={!programme || semesterLoading}
+                onChange={(e) =>
+                  setCatalogSemester(
+                    e.target.value === "" ? "" : Number(e.target.value),
+                  )
+                }
+                disabled={!programme}
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
               >
                 <option value="">Select semester</option>
