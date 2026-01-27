@@ -1,5 +1,5 @@
 # backend/app/api/routes/exams.py
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import UniqueConstraint
 from app.schemas.exam_schema import AdminCombinedMarksOut, ExamCreate, ExamMarksOut, ExamOut,ExamSectionCreate, ExamSectionOut, ExamUpdate,MarksSaveRequest
@@ -13,10 +13,10 @@ from typing import Any, List,Optional
 from app.api.dependencies import admin_required,get_current_user
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.exam import Exam, ExamSection
 from app.models.programme import Programme
 from app.schemas.programme import ProgrammeCreate, ProgrammeOut
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.dependencies import admin_required
 
 router = APIRouter()
 
@@ -1063,3 +1063,76 @@ async def add_programme(
 
     return programme
 
+
+@router.delete("/by-academic-year/{academic_year}")
+def delete_exams_by_academic_year(
+    academic_year: str,
+    db: Session = Depends(get_db),
+    _: None = Depends(admin_required),
+):
+    # sanity check
+    if not academic_year or len(academic_year) < 4:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid academic year"
+        )
+
+    # check existence
+    exam_count = (
+        db.query(Exam)
+        .filter(Exam.academic_year == academic_year)
+        .count()
+    )
+
+    if exam_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No exams found for academic year {academic_year}"
+        )
+
+
+    # subquery of exams for the academic year
+    exam_ids_subquery = (
+        db.query(Exam.id)
+        .filter(Exam.academic_year == academic_year)
+        .subquery()
+    )
+
+    try:
+        #  delete marks
+        db.execute(
+            delete(Mark).where(
+                Mark.exam_id.in_(exam_ids_subquery)
+            )
+        )
+
+        # delete questions
+        db.execute(
+            delete(Question).where(
+                Question.exam_id.in_(exam_ids_subquery)
+            )
+        )
+
+        # delete exam sections
+        db.execute(
+            delete(ExamSection).where(
+                ExamSection.exam_id.in_(exam_ids_subquery)
+            )
+        )
+
+        #  delete exams
+        db.execute(
+            delete(Exam).where(
+                Exam.academic_year == academic_year
+            )
+        )
+
+        db.commit()
+
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete exams: {str(e)}"
+        )
