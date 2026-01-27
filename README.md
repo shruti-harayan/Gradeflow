@@ -97,10 +97,10 @@ Displays the admin panel for managing exams and users. Admins can filter exams, 
 
 ---
 
-### 9️⃣ Create Admin/Teacher Account
-displays the account creation form accessible to administrators. It allows creation of teacher or admin users by entering name, college email, password, and role. This ensures centralized user management and controlled system access.
+### 9️⃣ Create Admin / Teacher Account
+Displays the account creation form accessible to administrators. It allows creation of teacher or admin users by entering name, college email, password, and role. This ensures centralized user management and controlled system access.
 
-<img width="696" height="664" alt="Screenshot 2026-01-27 164840" src="https://github.com/user-attachments/assets/8b14253c-88ce-4bbb-b9c6-8e6bb7d53b5b" />
+<img width="680" height="650" alt="Screenshot 2026-01-27 164840" src="https://github.com/user-attachments/assets/8b14253c-88ce-4bbb-b9c6-8e6bb7d53b5b" />
 
 
 
