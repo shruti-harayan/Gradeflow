@@ -58,7 +58,8 @@ Shows the secure login interface for teachers to access exam creation, marks ent
 ### 3️⃣ Teacher Dashboard
 Provides an overview of all subjects and exams created by the teacher. Filters by subject and academic year are available, along with quick access to marks entry and CSV export.
 
-<img width="1886" height="887" alt="Screenshot 2025-12-20 135126" src="https://github.com/user-attachments/assets/37867690-d0b7-40b5-8f4f-bdfb9c07d20e" />
+<img width="959" height="418" alt="image" src="https://github.com/user-attachments/assets/3ee76930-35eb-4481-b7c8-f19bd4cb19b9" />
+
 
 
 ---
@@ -66,7 +67,8 @@ Provides an overview of all subjects and exams created by the teacher. Filters b
 ### 4️⃣ Create New Exam
 Allows teachers to create a new exam by specifying subject details, exam type, semester, and academic year. Upon creation, the system redirects to the marks entry screen.
 
-<img width="1874" height="877" alt="Screenshot 2025-12-20 135528" src="https://github.com/user-attachments/assets/70ef87d1-6e34-4658-8f4b-45217df1f01d" />
+<img width="947" height="476" alt="image" src="https://github.com/user-attachments/assets/17320ff4-97de-4d96-b5cb-cdd7a7748ae1" />
+
 
 
 ---
@@ -89,7 +91,8 @@ Shows the core marks entry table where teachers enter sub-question marks per stu
 ### 8️⃣ Admin Dashboard
 Displays the admin panel for managing exams and users. Admins can filter exams, lock/unlock submissions, and download CSV reports.
 
-<img width="1865" height="870" alt="Screenshot 2025-12-20 135648" src="https://github.com/user-attachments/assets/ff55da4d-6739-429b-99b1-48ac5f3e8522" />
+<img width="953" height="386" alt="image" src="https://github.com/user-attachments/assets/27ca0436-b1c1-4fc1-9d7f-557bf1917565" />
+
 
 
 ---
