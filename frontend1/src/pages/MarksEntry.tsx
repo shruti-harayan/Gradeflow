@@ -53,11 +53,11 @@ export default function MarksEntry() {
 
   const [sections, setSections] = useState<Section[]>([]);
   const [selectedSectionId, setSelectedSectionId] = useState<number | null>(
-    null
+    null,
   );
   // allow the user to optionally enter an explicit overall max (e.g. 100)
   const [maxTotalOverride, setMaxTotalOverride] = React.useState<number | "">(
-    ""
+    "",
   );
 
   const [creatingSection, setCreatingSection] = React.useState(false);
@@ -98,10 +98,11 @@ export default function MarksEntry() {
   const [subjectName, setSubjectName] = React.useState(initialSubjectName);
   const [examName, setExamName] = React.useState(initialExam);
   const [semester, setSemester] = React.useState<number>(
-    isNaN(initialSem) ? 1 : initialSem
+    isNaN(initialSem) ? 1 : initialSem,
   );
 
-  const [academicYear, setAcademicYear] = React.useState("2025-2026");
+  const academicYear = exam?.academic_year ?? "";
+
   const [mainQuestions, setMainQuestions] = React.useState<MainQuestion[]>([]);
   const [students, setStudents] = React.useState<Student[]>(initialStudents);
   const [marks, setMarks] = React.useState<MarksMap>({});
@@ -122,33 +123,17 @@ export default function MarksEntry() {
   const isFinalized = !!exam?.is_locked;
   const disabled = isFrozen || isFinalized;
 
-  //automatically set academic year
-  React.useEffect(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const next = year + 1;
-    setAcademicYear(`${year}-${next}`);
-  }, []);
-
   React.useEffect(() => {
     async function loadSections() {
       try {
-        // replace get with your API wrapper
         const res = await api.get(`/exams/${examId}/sections`);
         setSections(res.data || []);
-        // if teacher has exactly one section, auto-select it
-        if (res.data && res.data.length === 1)
-          setSelectedSectionId(res.data[0].id);
       } catch (err) {
         console.error("Failed to load sections", err);
       }
     }
     loadSections();
   }, [examId]);
-
-  React.useEffect(() => {
-    if (!isAdminView) return;
-  }, [isAdminView]);
 
   // --- new helper: generate students array from numeric range (inclusive) ---
   function generateStudentsFromRange(start: number, end: number): Student[] {
@@ -200,11 +185,10 @@ export default function MarksEntry() {
             subject_name: subjectName,
             exam_type: examName,
             semester: String(semester),
-            academic_year: academicYear,
           });
 
           const res = await api.get(
-            `/exams/admin/combined-marks?${params.toString()}`
+            `/exams/admin/combined-marks?${params.toString()}`,
           );
           data = res.data;
         } else {
@@ -355,7 +339,7 @@ export default function MarksEntry() {
     }
     if (nFrom > nTo) {
       alert(
-        "Starting roll number must be less than or equal to ending roll number."
+        "Starting roll number must be less than or equal to ending roll number.",
       );
       return;
     }
@@ -364,7 +348,7 @@ export default function MarksEntry() {
     if (count > MAX_GENERATE) {
       if (
         !confirm(
-          `You are about to generate ${count} rows. This may be slow. Proceed?`
+          `You are about to generate ${count} rows. This may be slow. Proceed?`,
         )
       )
         return;
@@ -434,7 +418,7 @@ export default function MarksEntry() {
     // Prevent duplicate main question labels
     if (mainQuestions.some((mq) => mq.label === label)) {
       alert(
-        `Main question ${label} already exists. Please choose a different label.`
+        `Main question ${label} already exists. Please choose a different label.`,
       );
       return;
     }
@@ -522,14 +506,14 @@ export default function MarksEntry() {
           ...mq,
           subQuestions: [...subs, newSub],
         };
-      })
+      }),
     );
   }
 
   function handleToggleAbsent(studentId: number) {
     if (disabled) return;
     setStudents((prev) =>
-      prev.map((s) => (s.id === studentId ? { ...s, absent: !s.absent } : s))
+      prev.map((s) => (s.id === studentId ? { ...s, absent: !s.absent } : s)),
     );
   }
 
@@ -542,7 +526,7 @@ export default function MarksEntry() {
     mainLabel: string,
     subLabel: string,
     max: number,
-    raw: string
+    raw: string,
   ) {
     if (isFrozen || isFinalized) return;
     const key = marksKey(rollNo, `${mainLabel}.${subLabel}`);
@@ -593,14 +577,14 @@ export default function MarksEntry() {
   function grandTotalForStudent(rollNo: number) {
     return mainQuestions.reduce(
       (acc, mq) => acc + mainTotalForStudent(rollNo, mq),
-      0
+      0,
     );
   }
 
   function maxTotal() {
     return mainQuestions.reduce(
       (acc, mq) => acc + mq.subQuestions.reduce((s, sq) => s + sq.maxMarks, 0),
-      0
+      0,
     );
   }
 
@@ -646,13 +630,13 @@ export default function MarksEntry() {
     }
     if (disabled) {
       alert(
-        "Final submission not allowed: account frozen or exam already finalized."
+        "Final submission not allowed: account frozen or exam already finalized.",
       );
       return;
     }
     if (
       !window.confirm(
-        "This will final-submit the exam. You will not be able to edit marks afterwards. Proceed?"
+        "This will final-submit the exam. You will not be able to edit marks afterwards. Proceed?",
       )
     )
       return;
@@ -660,7 +644,7 @@ export default function MarksEntry() {
     try {
       await finalizeExam(exam.id);
       setExam((prev) =>
-        prev ? ({ ...prev, is_locked: true } as ExamWithRules) : prev
+        prev ? ({ ...prev, is_locked: true } as ExamWithRules) : prev,
       );
 
       // mark that THIS teacher finalized it (so banner shows the teacher message)
@@ -681,7 +665,7 @@ export default function MarksEntry() {
     const safe = (s: string) =>
       s.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\.]/g, "");
     const filename = `${safe(subjectName)}_${safe(
-      examName
+      examName,
     )}_Sem${semester}_${academicYear}.csv`;
     try {
       await downloadExamCsv(examId, filename);
@@ -703,13 +687,13 @@ export default function MarksEntry() {
 
     if (!examId || examId <= 0) {
       alert(
-        "This exam is not linked to backend yet. Create it from Teacher Dashboard to save."
+        "This exam is not linked to backend yet. Create it from Teacher Dashboard to save.",
       );
       return;
     }
     if (disabled) {
       alert(
-        "Your account has been frozen or exam finalized. You cannot save marks."
+        "Your account has been frozen or exam finalized. You cannot save marks.",
       );
       return;
     }
@@ -719,7 +703,7 @@ export default function MarksEntry() {
       mq.subQuestions.map((sq) => ({
         label: `${mq.label}.${sq.label}`,
         max_marks: sq.maxMarks,
-      }))
+      })),
     );
 
     // For each student build marks map keyed by "Q1.A"
@@ -730,7 +714,7 @@ export default function MarksEntry() {
           const key = `${mq.label}.${sq.label}`;
           const mk = marks[marksKey(s.rollNo, key)];
           marksMap[key] = typeof mk === "number" ? mk : null;
-        })
+        }),
       );
 
       return {
@@ -912,8 +896,8 @@ export default function MarksEntry() {
             <input
               type="text"
               value={academicYear}
-              onChange={(e) => setAcademicYear(e.target.value)}
-              placeholder="2025-2026"
+              readOnly
+              disabled
               className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 
                 text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
@@ -952,7 +936,7 @@ export default function MarksEntry() {
                 <span className="font-semibold text-slate-100">
                   {mainQuestions.reduce(
                     (s, mq) => s + (mq.subQuestions?.length || 0),
-                    0
+                    0,
                   )}
                 </span>
               </div>
@@ -986,7 +970,7 @@ export default function MarksEntry() {
                       // allow fractional? Parse as number. Use Math.max(0, value)
                       const n = Number(v);
                       setMaxTotalOverride(
-                        Number.isFinite(n) ? Math.max(0, n) : ""
+                        Number.isFinite(n) ? Math.max(0, n) : "",
                       );
                     }
                   }}
@@ -1044,7 +1028,7 @@ export default function MarksEntry() {
               alert(
                 disabled
                   ? "This exam is locked by admin."
-                  : "Admins cannot create sections from this view."
+                  : "Admins cannot create sections from this view.",
               );
               return;
             }
@@ -1055,8 +1039,8 @@ export default function MarksEntry() {
             isAdmin
               ? "Admins cannot create sections"
               : disabled
-              ? "Exam is locked by admin"
-              : "Create a new section"
+                ? "Exam is locked by admin"
+                : "Create a new section"
           }
         >
           Create Section
@@ -1104,7 +1088,7 @@ export default function MarksEntry() {
                     // compute isAdmin again in case scope differs
                     const adminQuery2 =
                       new URLSearchParams(window.location.search).get(
-                        "adminView"
+                        "adminView",
                       ) === "1";
                     const isAdmin2 =
                       typeof isAdminView !== "undefined"
@@ -1132,10 +1116,10 @@ export default function MarksEntry() {
                       // auto-generate rows for the newly created section
                       try {
                         const rs = Number(
-                          r.data.roll_start ?? r.data.rollStart ?? 0
+                          r.data.roll_start ?? r.data.rollStart ?? 0,
                         );
                         const re = Number(
-                          r.data.roll_end ?? r.data.rollEnd ?? 0
+                          r.data.roll_end ?? r.data.rollEnd ?? 0,
                         );
                         if (
                           Number.isFinite(rs) &&
@@ -1148,7 +1132,7 @@ export default function MarksEntry() {
                       } catch (ex) {
                         console.warn(
                           "Failed to auto-generate students for new section",
-                          ex
+                          ex,
                         );
                       }
 
@@ -1156,7 +1140,7 @@ export default function MarksEntry() {
                     } catch (err: any) {
                       alert(
                         err?.response?.data?.detail ||
-                          "Failed to create section"
+                          "Failed to create section",
                       );
                     }
                   }}
@@ -1369,7 +1353,7 @@ export default function MarksEntry() {
                   ) {
                     if (
                       !confirm(
-                        `You set N=${N}, K=${K} but this main question has ${mq.subQuestions.length} sub-questions. Proceed?`
+                        `You set N=${N}, K=${K} but this main question has ${mq.subQuestions.length} sub-questions. Proceed?`,
                       )
                     ) {
                       return;
@@ -1389,8 +1373,8 @@ export default function MarksEntry() {
                   isAdminView
                     ? "Admins cannot apply question rules"
                     : disabled
-                    ? "Exam is locked by admin"
-                    : undefined
+                      ? "Exam is locked by admin"
+                      : undefined
                 }
                 className={`rounded ${
                   isAdminView || disabled
@@ -1448,8 +1432,8 @@ export default function MarksEntry() {
                             isAdminView
                               ? "Admins cannot remove question rules"
                               : disabled
-                              ? "Exam is locked by admin"
-                              : "Remove rule"
+                                ? "Exam is locked by admin"
+                                : "Remove rule"
                           }
                           className={`text-xs rounded px-2 py-0.5 ${
                             isAdminView || disabled
@@ -1579,7 +1563,7 @@ export default function MarksEntry() {
                                   onClick={() => addSubQuestionToMain(mqLabel)}
                                   className="ml-2 rounded px-1 py-0.5 bg-slate-800 text-slate-200 text-xs"
                                   title={`Add ${mqLabel}.${String.fromCharCode(
-                                    sqLabel.charCodeAt(0) + 1
+                                    sqLabel.charCodeAt(0) + 1,
                                   )}`}
                                 >
                                   +
@@ -1640,8 +1624,8 @@ export default function MarksEntry() {
                     (s.absent
                       ? " bg-slate-900/60"
                       : rowIdx % 2 === 0
-                      ? " bg-slate-950/40"
-                      : "")
+                        ? " bg-slate-950/40"
+                        : "")
                   }
                 >
                   <td className="px-3 py-2 font-mono text-slate-200">
@@ -1667,10 +1651,10 @@ export default function MarksEntry() {
                       const key = marksKey(s.rollNo, keyLabel);
                       const value = marks[key];
                       const mqObj = mainQuestions.find(
-                        (m) => m.label === g.main
+                        (m) => m.label === g.main,
                       )!;
                       const sqObj = mqObj.subQuestions.find(
-                        (sq) => sq.label === g.label
+                        (sq) => sq.label === g.label,
                       );
                       const maxMarks = sqObj?.maxMarks ?? g.maxMarks ?? 0;
 
@@ -1693,7 +1677,7 @@ export default function MarksEntry() {
                                 g.main,
                                 g.label!,
                                 maxMarks,
-                                e.target.value
+                                e.target.value,
                               )
                             }
                             disabled={
@@ -1715,7 +1699,7 @@ export default function MarksEntry() {
 
                     // main total column
                     const mainQ = mainQuestions.find(
-                      (m) => m.label === g.main
+                      (m) => m.label === g.main,
                     )!;
                     const mainTotal = s.absent
                       ? "AB"

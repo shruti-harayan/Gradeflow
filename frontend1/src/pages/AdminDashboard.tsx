@@ -33,8 +33,15 @@ export default function AdminDashboard() {
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [programmeCode, setProgrammeCode] = useState("");
 
+  const [showPurgeModal, setShowPurgeModal] = useState(false);
+  const [purgeYear, setPurgeYear] = useState("");
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [purgeSuccess, setPurgeSuccess] = useState<string | null>(null);
+  const [purging, setPurging] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const [programmeCode, setProgrammeCode] = useState("");
   const [programmeSuccess, setProgrammeSuccess] = useState<string | null>(null);
   const [showAddProgramme, setShowAddProgramme] = useState(false);
   const [programmeName, setProgrammeName] = useState("");
@@ -178,6 +185,52 @@ export default function AdminDashboard() {
       setFormSuccess(null);
     }
   }, [showAddSubject]);
+
+  async function fetchExams() {
+    setLoading(true);
+    try {
+      const res = await api.get("/exams", {});
+      setExams(res.data);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePurgeExams() {
+    if (!purgeYear.trim()) {
+      setPurgeError("Academic year is required");
+      return;
+    }
+
+    if (confirmText !== "DELETE") {
+      setPurgeError("Type DELETE to confirm");
+      return;
+    }
+
+    try {
+      setPurging(true);
+      setPurgeError(null);
+
+      await api.delete(`/exams/by-academic-year/${purgeYear}`);
+
+      // refresh exam list
+      await fetchExams();
+
+      //  reset modal fields
+      setPurgeYear("");
+      setConfirmText("");
+
+      setPurgeSuccess(`All exams for academic year ${purgeYear} have been deleted successfully.`);
+
+      setTimeout(() => {
+        setPurgeSuccess(null);
+      }, 2000);
+    } catch (e: any) {
+      setPurgeError(e?.response?.data?.detail || "Failed to delete exams");
+    } finally {
+      setPurging(false);
+    }
+  }
 
   async function handleAddSubject() {
     if (
@@ -774,7 +827,13 @@ export default function AdminDashboard() {
           className="px-3 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 text-sm"
           title="Change your password"
         >
-          Change password
+          Change Current Account's Password
+        </button>
+        <button
+          onClick={() => setShowPurgeModal(true)}
+          className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
+        >
+          ⚠️DELETE All Exams (cannot be undone)
         </button>
       </div>
 
@@ -1526,6 +1585,75 @@ export default function AdminDashboard() {
                 {modalAction === "lock"
                   ? "Confirm Final Submit"
                   : "Confirm Unlock"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Purge Exams Modal */}
+      {showPurgeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-md rounded-lg bg-slate-900 p-6">
+            <h2 className="text-lg font-bold text-red-400">
+              ⚠️ Delete Exams Permanently
+            </h2>
+
+            <p className="mt-2 text-sm text-slate-300">
+              This will permanently delete <b>all exams</b> for the given
+              academic year. This action <b>cannot be undone</b>.
+            </p>
+
+            <input
+              placeholder="Academic Year (e.g. 2024-2025)"
+              value={purgeYear}
+              onChange={(e) => setPurgeYear(e.target.value)}
+              className="mt-4 w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+            />
+
+            <input
+              placeholder="Type DELETE to confirm"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              className="mt-3 w-full rounded-md border border-red-700 bg-slate-800 px-3 py-2 text-white"
+            />
+
+            {purgeError && (
+              <div className="mt-3 rounded-md bg-red-900/40 border border-red-700 px-3 py-2 text-sm text-red-300">
+                {purgeError}
+              </div>
+            )}
+
+            {purgeSuccess && (
+              <div className="mt-3 rounded-md bg-green-900/40 border border-green-700 px-3 py-2 text-sm text-green-300">
+                {purgeSuccess}
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowPurgeModal(false);
+
+                  //  reset everything
+                  setPurgeYear("");
+                  setConfirmText("");
+                  setPurgeError(null);
+                  setPurgeSuccess(null);
+                }}
+                className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300"
+              >
+                Cancel
+              </button>
+
+              <button
+                disabled={purging}
+                onClick={handlePurgeExams}
+                className={`rounded-md px-4 py-1.5 text-sm font-semibold text-white ${
+                  purging ? "bg-red-600/60" : "bg-red-600 hover:bg-red-700"
+                }`}
+              >
+                {purging ? "Deleting..." : "Delete Exams"}
               </button>
             </div>
           </div>
