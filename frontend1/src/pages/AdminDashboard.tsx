@@ -26,6 +26,13 @@ type TeacherLite = {
   is_frozen: boolean;
 };
 
+type AppliedFilters = {
+  programme?: string;
+  semester?: number;
+  exam_type?: string;
+  academic_year?: string;
+};
+
 export default function AdminDashboard() {
   const [teachers, setTeachers] = React.useState<TeacherLite[]>([]);
   const [exams, setExams] = React.useState<ExamOut[]>([]);
@@ -33,6 +40,10 @@ export default function AdminDashboard() {
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  const [appliedFilters, setAppliedFilters] = useState<AppliedFilters | null>(
+    null,
+  );
 
   const [showPurgeModal, setShowPurgeModal] = useState(false);
   const [purgeYear, setPurgeYear] = useState("");
@@ -220,7 +231,9 @@ export default function AdminDashboard() {
       setPurgeYear("");
       setConfirmText("");
 
-      setPurgeSuccess(`All exams for academic year ${purgeYear} have been deleted successfully.`);
+      setPurgeSuccess(
+        `All exams for academic year ${purgeYear} have been deleted successfully.`,
+      );
 
       setTimeout(() => {
         setPurgeSuccess(null);
@@ -752,15 +765,23 @@ export default function AdminDashboard() {
 
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
+            const filters = {
+              programme: filterProgramme || undefined,
+              semester: filterSemester || undefined,
+              exam_type: filterExamType || undefined,
+              academic_year: filterAcademicYear || undefined,
+            };
+
+            setAppliedFilters(filters);
             loadExams({
               programme: filterProgramme || undefined,
               semester: filterSemester || undefined,
               exam_type: filterExamType || undefined,
               academic_year: filterAcademicYear || undefined,
               created_by: selectedTeacherId ?? undefined,
-            })
-          }
+            });
+          }}
           className="rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
         >
           Apply
@@ -772,6 +793,7 @@ export default function AdminDashboard() {
             setFilterSemester("");
             setFilterExamType("");
             setFilterAcademicYear("2025-2026");
+            setAppliedFilters(null);
             setSelectedTeacherId(null);
             loadExams({});
           }}
@@ -1034,6 +1056,50 @@ export default function AdminDashboard() {
 
         {/* RIGHT: exams */}
         <div className="lg:col-span-2">
+          {appliedFilters && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="rounded-full bg-slate-700 px-3 py-1 text-xs text-white">
+                Showing exams for:
+                {appliedFilters.programme && (
+                  <>
+                    {" "}
+                    Programme: <b>{appliedFilters.programme}</b>
+                  </>
+                )}
+                {appliedFilters.semester && (
+                  <>
+                    {" "}
+                    • Semester: <b>{appliedFilters.semester}</b>
+                  </>
+                )}
+                {appliedFilters.exam_type && (
+                  <>
+                    {" "}
+                    • Type: <b>{appliedFilters.exam_type}</b>
+                  </>
+                )}
+                {appliedFilters.academic_year && (
+                  <>
+                    {" "}
+                    • Year: <b>{appliedFilters.academic_year}</b>
+                  </>
+                )}
+              </div>
+
+              <button
+                onClick={() => {
+                  setAppliedFilters(null);
+                  loadExams({
+                    created_by: selectedTeacherId ?? undefined,
+                  });
+                }}
+                className="rounded border px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+
           {selectedTeacherId && (
             <div className="mb-3 flex items-center gap-3">
               <div className="rounded-full bg-indigo-600 px-3 py-1 text-white text-sm font-semibold">
