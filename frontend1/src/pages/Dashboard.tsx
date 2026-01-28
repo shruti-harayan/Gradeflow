@@ -382,7 +382,7 @@ const semesters = Array.from(
       )}
       {error && (
         <p className="text-xs text-red-400">
-          {error} (Failed to load exams from server.)
+          {error}
         </p>
       )}
 
@@ -628,4 +628,5 @@ const semesters = Array.from(
     </div>
   );
 }
+
 
