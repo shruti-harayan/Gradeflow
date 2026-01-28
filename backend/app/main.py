@@ -12,7 +12,7 @@ origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://gradeflow-beta.vercel.app/",
-
+    "https://grade-frontend-vercel.vercel.app/",
 ]
 
 app.add_middleware(
@@ -30,3 +30,4 @@ app.include_router(subjects.router, prefix="/subjects", tags=["subjects"])
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
