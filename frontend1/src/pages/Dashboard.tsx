@@ -382,7 +382,7 @@ const semesters = Array.from(
       )}
       {error && (
         <p className="text-xs text-red-400">
-          {error} (check backend is running on port 8000)
+          {error} (Failed to load exams from server.)
         </p>
       )}
 
@@ -628,3 +628,4 @@ const semesters = Array.from(
     </div>
   );
 }
+
