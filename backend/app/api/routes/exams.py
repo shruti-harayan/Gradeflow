@@ -467,10 +467,31 @@ def get_exam_marks(exam_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    marks_out = [
-        {"student_id": m.student_id, "question_id": m.question_id, "marks": m.marks}
-        for m in marks
-    ]
+    # build lookup maps
+    student_roll_by_id = {
+        s.id: s.roll_no
+        for s in students
+    }
+
+    question_label_by_id = {
+        q.id: q.label
+        for q in questions
+    }
+
+    marks_out = []
+
+    for m in marks:
+        roll_no = student_roll_by_id.get(m.student_id)
+        q_label = question_label_by_id.get(m.question_id)
+
+        if roll_no is None or q_label is None:
+            continue
+
+        marks_out.append({
+            "roll_no": roll_no,
+            "question_label": q_label,
+            "marks": m.marks,
+        })
 
     return {
         "exam": exam,
