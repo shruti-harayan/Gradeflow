@@ -90,9 +90,9 @@ class MarksSaveRequest(BaseModel):
 
 
 class MarkOut(BaseModel):
-    student_id: int
-    question_id: int
-    marks: float | None
+    roll_no: int
+    question_label: str
+    marks: Optional[float]
 
 
 class ExamMarksOut(BaseModel):
