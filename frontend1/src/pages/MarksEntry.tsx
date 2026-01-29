@@ -1,5 +1,5 @@
 // src/pages/MarksEntry.tsx
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   saveExamMarks,
@@ -146,6 +146,8 @@ export default function MarksEntry() {
 
   // Section select handler: selects and generates rows for that section's range
   function handleSectionSelect(e: React.ChangeEvent<HTMLSelectElement>) {
+
+    if (isAdminView) return;
     const val = e.target.value;
     if (!val) {
       setSelectedSectionId(null);
@@ -172,143 +174,112 @@ export default function MarksEntry() {
     }
   }
 
-  React.useEffect(() => {
-    // load exam details & existing saved marks
-    async function loadExam() {
-      if (!examId || examId <= 0) return;
-      try {
-        let data: ExamMarksOut;
+  useEffect(() => {
+  async function loadExamMeta() {
+    if (!examId || examId <= 0) return;
 
-        if (isAdminView) {
-          const params = new URLSearchParams({
-            subject_code: subjectCode,
-            subject_name: subjectName,
-            exam_type: examName,
-            semester: String(semester),
-          });
+    try {
+      const data = await getExamMarks(examId); // safe for both views
+      setExam(data.exam as ExamWithRules);
 
-          const res = await api.get(
-            `/exams/admin/combined-marks?${params.toString()}`,
-          );
-          data = res.data;
-        } else {
-          data = await getExamMarks(examId);
-        }
+      setSubjectCode(data.exam.subject_code);
+      setSubjectName(data.exam.subject_name);
+      setExamName(data.exam.exam_type);
+      setSemester(data.exam.semester);
 
-        setSubjectCode(data.exam.subject_code);
-        setSubjectName(data.exam.subject_name);
-        setExamName(data.exam.exam_type);
-        setSemester(data.exam.semester);
-        setExam(data.exam as ExamWithRules);
+      if (data.exam?.question_rules) {
+        const rules =
+          typeof data.exam.question_rules === "string"
+            ? JSON.parse(data.exam.question_rules)
+            : data.exam.question_rules;
+        setQuestionRules(rules || {});
+      }
+    } catch (e) {
+      console.error("Failed to load exam meta", e);
+    }
+  }
 
-        if (data.exam?.question_rules) {
-          try {
-            // api might return object already, or JSON string depending on backend
-            const rules =
-              typeof data.exam.question_rules === "string"
-                ? JSON.parse(data.exam.question_rules)
-                : data.exam.question_rules;
-            setQuestionRules(rules || {});
-          } catch (err) {
-            console.warn("Failed to parse question_rules", err);
-          }
-        }
+  loadExamMeta();
+}, [examId]);
 
-        if (data.questions && data.questions.length > 0) {
-          const mqMap = new Map<string, MainQuestion>();
-          data.questions.forEach((q) => {
-            const label = q.label; // expect "Q1.A" or similar
-            const parts = label.split(".");
-            if (parts.length === 2) {
-              const main = parts[0];
-              const sub = parts[1];
-              if (!mqMap.has(main)) {
-                mqMap.set(main, {
-                  id: Date.now() + mqMap.size + 1,
-                  label: main,
-                  subQuestions: [],
-                });
-              }
-              const mq = mqMap.get(main)!;
-              mq.subQuestions.push({
-                id: Date.now() + Math.random() * 10000,
-                label: sub,
-                maxMarks: q.max_marks,
-              });
-            } else {
-              // fallback: treat as main question with single sub
-              const main = label;
-              if (!mqMap.has(main)) {
-                mqMap.set(main, {
-                  id: Date.now() + mqMap.size + 1,
-                  label: main,
-                  subQuestions: [
-                    { id: Date.now(), label: "A", maxMarks: q.max_marks },
-                  ],
-                });
-              }
-            }
-          });
-          setMainQuestions(Array.from(mqMap.values()));
-        }
+useEffect(() => {
+  async function loadMarks() {
+    if (!exam) return;
 
-        // students
-        if (data.students && data.students.length > 0) {
-          const ss: Student[] = data.students.map((s: any) => ({
-            id: s.id,
-            rollNo: s.roll_no,
-            absent: s.absent,
-          }));
-          setStudents(ss);
-        }
+    try {
+      let data: ExamMarksOut;
 
-        // marks -> build marks map keyed by `${rollNo}-${label}`
-        if (data.marks && data.marks.length > 0) {
-          const m: MarksMap = {};
+      if (isAdminView) {
+        const params = new URLSearchParams({
+          subject_code: exam.subject_code,
+          subject_name: exam.subject_name,
+          exam_type: exam.exam_type,
+          semester: String(exam.semester),
+          academic_year: exam.academic_year,
+        });
 
-          // map question_id -> label
-          const qById = new Map<number, string>();
-          (data.questions || []).forEach((q: any) => qById.set(q.id, q.label));
+        const res = await api.get(
+          `/exams/admin/combined-marks?${params.toString()}`
+        );
+        data = res.data;
+      } else {
+        //  TEACHER PATH
+        data = await getExamMarks(exam.id);
+      }
 
-          // map student_id -> roll_no (TEACHER VIEW ONLY)
-          const rollByStudentId = new Map<number, number>();
-          if (!isAdminView && data.students) {
-            data.students.forEach((s: any) => {
-              rollByStudentId.set(s.id, s.roll_no);
+      /* ---------------- QUESTIONS ---------------- */
+      if (data.questions?.length) {
+        const mqMap = new Map<string, MainQuestion>();
+
+        data.questions.forEach((q) => {
+          const [main, sub] = q.label.split(".");
+          if (!mqMap.has(main)) {
+            mqMap.set(main, {
+              id: Number(main),
+              label: main,
+              subQuestions: [],
             });
           }
 
-          data.marks.forEach((mk: any) => {
-            let rollNo: number | undefined;
-            let qLabel: string | undefined;
-
-            if (isAdminView) {
-              //  ADMIN COMBINED VIEW
-              // backend sends roll_no + question_label
-              rollNo = mk.roll_no;
-              qLabel = mk.question_label;
-            } else {
-              //  TEACHER VIEW
-              // backend sends student_id + question_id
-              rollNo = rollByStudentId.get(mk.student_id);
-              qLabel = qById.get(mk.question_id);
-            }
-
-            if (!rollNo || !qLabel) return;
-
-            const key = `${rollNo}-${qLabel}`;
-            m[key] = mk.marks === null ? "" : mk.marks;
+          mqMap.get(main)!.subQuestions.push({
+            id: q.id,
+            label: sub ?? "A",
+            maxMarks: q.max_marks,
           });
+        });
 
-          setMarks(m);
-        }
-      } catch (err) {
-        console.error("Failed to load exam marks", err);
+        setMainQuestions(Array.from(mqMap.values()));
       }
-    }
 
-    loadExam();
-  }, [examId]);
+      /* ---------------- STUDENTS ---------------- */
+      if (data.students?.length) {
+        setStudents(
+          data.students.map((s: any) => ({
+            id: s.id,
+            rollNo: s.roll_no,
+            absent: s.absent,
+          }))
+        );
+      }
+
+      /* ---------------- MARKS (THIS WAS MISSING) ---------------- */
+      const marksMap: MarksMap = {};
+      if (data.marks?.length) {
+        data.marks.forEach((m: any) => {
+          const key = `${m.roll_no}-${m.question_label}`;
+          marksMap[key] = m.marks ?? "";
+        });
+      }
+      setMarks(marksMap);
+
+    } catch (e) {
+      console.error("Failed to load marks", e);
+    }
+  }
+
+  loadMarks();
+}, [exam, isAdminView]);
+
 
   // helpers
   const normalizeRollValue = (v: string) => v.trim();
