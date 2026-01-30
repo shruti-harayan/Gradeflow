@@ -94,14 +94,12 @@ GradeFlow team
 """
 
     try:
-        send_email(
            send_email(
             to_email=user.email,
             subject="GradeFlow — Password reset instructions",
             plain_body=plain,
             html_body=html
             )
-        )
     except Exception as e:
         print("Forgot-password email failed:", e)
         db.delete(row)
