@@ -28,6 +28,7 @@ class ExamBase(BaseModel):
     exam_type: str = Field(..., description="Internal, External, Practical, ATKT, Other")
     semester: int
     academic_year: str
+    
    
 class ExamCreate(ExamBase):
     pass
@@ -41,6 +42,7 @@ class ExamOut(ExamBase):
     locked_by: Optional[int] = None
     created_by: Optional[int]=None
     question_rules: Optional[Dict[str, Any]] = None
+    locked_by_name:Optional[str]=None
 
     class Config:
             orm_mode = True
