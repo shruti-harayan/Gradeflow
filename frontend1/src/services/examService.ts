@@ -26,6 +26,7 @@ export interface ExamOut {
   exam_type: ExamType;
   semester: number;
   academic_year: string;
+  locked_by_name?:string | null;
 
   created_at?: string;   // ISO UTC
   updated_at?: string;   // ISO UTC
