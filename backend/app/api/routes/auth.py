@@ -21,21 +21,34 @@ class ForgotPasswordIn(BaseModel):
 @router.post("/forgot-password")
 def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="This email is not registered.")
-    if user.role == "teacher":
-        raise HTTPException(status_code=403, detail="This account is registered as teacher so cannot reset password.")
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Not allowed")
 
-# Remove old reset tokens for this user
-    db.query(PasswordReset).filter(PasswordReset.user_id == user.id).delete()
+    # Security: do not reveal whether user exists
+    if not user:
+        return {"detail": "If the account exists, a reset link has been sent."}
+
+    # Teachers are explicitly blocked
+    if user.role == "teacher":
+        raise HTTPException(
+            status_code=403,
+            detail="This account is registered as teacher so cannot reset password."
+        )
+
+    # Only admins allowed
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Password reset is not allowed for this account."
+        )
+
+    # Remove old reset tokens
+    db.query(PasswordReset).filter(
+        PasswordReset.user_id == user.id
+    ).delete()
     db.commit()
 
     # Generate secure token
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-
     expiry = datetime.now(timezone.utc) + timedelta(hours=1)
 
     row = PasswordReset(
@@ -48,43 +61,53 @@ def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
 
     reset_link = f"{APP_BASE_URL.rstrip('/')}/reset-password?token={raw_token}"
 
-    # Plain-text and HTML versions
     plain = f"""Hello,
 
-    We received a request to reset the password for your GradeFlow admin account.
+We received a request to reset the password for your GradeFlow admin account.
 
-    Click the link below to reset your password (valid for 1 hour):
-    {reset_link}
+Reset link (valid for 1 hour):
+{reset_link}
 
-    If you did not request this, you can ignore this email.
+If you did not request this, you can ignore this email.
 
-    Regards,
-    GradeFlow team
-    """
+Regards,
+GradeFlow team
+"""
+
     html = f"""
-    <html>
-    <body>
-        <p>Hello,</p>
-        <p>We received a request to reset the password for your GradeFlow admin account.</p>
-        <p>
-        <a href="{reset_link}" style="display:inline-block;padding:10px 16px;background:#6d28d9;color:#fff;border-radius:6px;text-decoration:none">
-            Reset password
-        </a>
-        </p>
-        <p style="color:#666;font-size:13px">Or click this link: <a href="{reset_link}">{reset_link}</a></p>
-        <p>If you did not request this, please ignore this message.</p>
-        <p>Regards,<br/>GradeFlow</p>
-    </body>
-    </html>
-    """
+<html>
+<body>
+  <p>Hello,</p>
+  <p>We received a request to reset the password for your GradeFlow admin account.</p>
+  <p>
+    <a href="{reset_link}" style="display:inline-block;padding:10px 16px;background:#6d28d9;color:#fff;border-radius:6px;text-decoration:none">
+      Reset password
+    </a>
+  </p>
+  <p style="font-size:13px;color:#666">
+    Or copy this link: <a href="{reset_link}">{reset_link}</a>
+  </p>
+  <p>If you did not request this, please ignore this message.</p>
+  <p>Regards,<br/>GradeFlow</p>
+</body>
+</html>
+"""
 
     try:
-        send_email(user.email, "GradeFlow — Password reset instructions", plain, html)
+        send_email(
+            to=user.email,
+            subject="GradeFlow — Password reset instructions",
+            plain=plain,
+            html=html
+        )
     except Exception as e:
-        print("Failed to send email:", e)
+        print("Forgot-password email failed:", e)
         db.delete(row)
         db.commit()
-        raise HTTPException(status_code=500, detail="Failed to send reset email. Please try again later.")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to send reset email at the moment."
+        )
 
     return {"detail": "Password reset instructions have been sent to your email."}
 
