@@ -17,6 +17,7 @@ from app.models.programme import Programme
 from app.schemas.programme import ProgrammeCreate, ProgrammeOut
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import admin_required
+from sqlalchemy.orm import aliased
 
 router = APIRouter()
 
@@ -90,6 +91,7 @@ def finalize_exam(
             "status": "ok",
             "scope": "single",
             "message": "Exam finalized",
+            "locked_by_name": current_user.name,
         }
 
     if current_user.role == "admin":
@@ -113,6 +115,7 @@ def finalize_exam(
             "status": "ok",
             "scope": "global",
             "message": "Exam finalized globally",
+            "locked_by_name": current_user.name,
         }
     raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -186,8 +189,23 @@ def list_exams(
     if exam_type:
         q = q.filter(Exam.exam_type == exam_type)
 
-    exams = q.order_by(Exam.created_at.desc()).all()
-    return exams
+    Locker = aliased(User)
+
+    exams = (
+        q.outerjoin(Locker, Locker.id == Exam.locked_by)
+        .add_columns(Locker.name.label("locked_by_name"))
+        .order_by(Exam.created_at.desc())
+        .all()
+    )
+
+    result = []
+    for exam, locked_by_name in exams:
+        result.append({
+            **exam.__dict__,
+            "locked_by_name": locked_by_name,
+        })
+
+    return result
 
 
 @router.post("/", response_model=ExamOut)
