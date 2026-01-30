@@ -394,21 +394,6 @@ export default function AdminDashboard() {
     loadTeachers();
   }, []);
 
-  // Fetch all teachers for locked-by name resolution
-  const userNameById = React.useMemo(() => {
-    const map = new Map<number, string>();
-
-    teachers.forEach((t) => {
-      if (t.name) map.set(t.id, t.name);
-    });
-
-    // admin fallback (logged-in user)
-    if (user?.id) {
-      map.set(user.id, user.name ?? "Admin");
-    }
-
-    return map;
-  }, [teachers, user]);
 
   function groupExamsForAdmin(exams: ExamOut[]) {
     const map = new Map<string, ExamOut[]>();
@@ -615,7 +600,7 @@ export default function AdminDashboard() {
         setExams((prev) =>
           prev.map((ex) =>
             ex.id === examId
-              ? { ...ex, is_locked: true, locked_by: user?.id }
+              ? { ...ex, is_locked: true, locked_by: user?.id,locked_by_name:user?.name,}
               : ex,
           ),
         );
@@ -1193,14 +1178,7 @@ export default function AdminDashboard() {
                     <p className="mt-1 text-[10px] text-slate-400 italic">
                       Locked by:{" "}
                       <span className="font-semibold text-slate-200">
-                        {(() => {
-                          const lockedById =
-                            e.locked_by == null ? null : Number(e.locked_by);
-
-                          if (!lockedById) return "Unknown";
-
-                          return userNameById.get(lockedById) ?? "Unknown user";
-                        })()}
+                        {e.locked_by_name ?? "Unknown"}
                       </span>
                     </p>
                   )}
