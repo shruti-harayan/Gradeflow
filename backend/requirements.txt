@@ -6,8 +6,8 @@ email-validator
 python-jose[cryptography]
 passlib[bcrypt]
 argon2-cffi
-google-auth
 requests
 sqlalchemy
 alembic
 python-dotenv
+psycopg2-binary 
