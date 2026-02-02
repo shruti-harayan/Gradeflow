@@ -124,6 +124,10 @@ export default function MarksEntry() {
   const disabled = isFrozen || isFinalized;
 
   useEffect(() => {
+    if (isAdminView) return;
+  }, [students]);
+
+  useEffect(() => {
     if (!isAdminView && sections.length === 1 && selectedSectionId === null) {
       setSelectedSectionId(sections[0].id);
     }
@@ -143,6 +147,7 @@ export default function MarksEntry() {
 
   // --- new helper: generate students array from numeric range (inclusive) ---
   function generateStudentsFromRange(start: number, end: number): Student[] {
+    if (isAdminView) return [];
     const arr: Student[] = [];
     for (let r = start; r <= end; r++) {
       arr.push({ id: Date.now() + r, rollNo: r, absent: false });
@@ -491,7 +496,7 @@ export default function MarksEntry() {
   }
 
   function handleToggleAbsent(studentId: number) {
-    if (disabled) return;
+    if (disabled || isAdminView) return;
     setStudents((prev) =>
       prev.map((s) => (s.id === studentId ? { ...s, absent: !s.absent } : s)),
     );
@@ -1618,7 +1623,7 @@ export default function MarksEntry() {
                         checked={!!s.absent}
                         onChange={() => handleToggleAbsent(s.id)}
                         className="h-3 w-3 rounded border-slate-600 text-rose-400"
-                        disabled={disabled}
+                        disabled={disabled || isAdminView}
                       />
                       <span>AB</span>
                     </label>
