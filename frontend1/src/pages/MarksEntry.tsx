@@ -123,6 +123,21 @@ export default function MarksEntry() {
   const isFinalized = !!exam?.is_locked;
   const disabled = isFrozen || isFinalized;
 
+
+  useEffect(() => {
+  if (!isAdminView && sections.length === 1 && selectedSectionId === null) {
+    setSelectedSectionId(sections[0].id);
+
+    const sec = sections[0];
+    const generated = generateStudentsFromRange(
+      Number(sec.roll_start),
+      Number(sec.roll_end)
+    );
+    setStudents(generated);
+  }
+}, [sections, selectedSectionId, isAdminView]);
+
+
   React.useEffect(() => {
     async function loadSections() {
       try {

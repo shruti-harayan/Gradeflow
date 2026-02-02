@@ -44,7 +44,7 @@ export default function AdminDashboard() {
   const [appliedFilters, setAppliedFilters] = useState<AppliedFilters | null>(
     null,
   );
-
+  const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
   const [showPurgeModal, setShowPurgeModal] = useState(false);
   const [purgeYear, setPurgeYear] = useState("");
   const [purgeError, setPurgeError] = useState<string | null>(null);
@@ -394,7 +394,6 @@ export default function AdminDashboard() {
     loadTeachers();
   }, []);
 
-
   function groupExamsForAdmin(exams: ExamOut[]) {
     const map = new Map<string, ExamOut[]>();
 
@@ -600,7 +599,12 @@ export default function AdminDashboard() {
         setExams((prev) =>
           prev.map((ex) =>
             ex.id === examId
-              ? { ...ex, is_locked: true, locked_by: user?.id,locked_by_name:user?.name,}
+              ? {
+                  ...ex,
+                  is_locked: true,
+                  locked_by: user?.id,
+                  locked_by_name: user?.name,
+                }
               : ex,
           ),
         );
@@ -650,7 +654,7 @@ export default function AdminDashboard() {
     }
   }
 
-  // View marks navigates to marks-entry page (adminView=1)
+  // View marks navigates to marks-entry page
   function handleViewMarks(e: ExamOut) {
     const q = new URLSearchParams({
       examId: String(e.id),
@@ -1452,6 +1456,11 @@ export default function AdminDashboard() {
             {deleteError && (
               <p className="mt-2 text-xs text-red-400">{deleteError}</p>
             )}
+            {deleteSuccess && (
+              <div className="mt-2 rounded bg-green-900/30 border border-green-700 px-3 py-2 text-xs text-green-300">
+                {deleteSuccess}
+              </div>
+            )}
 
             {/* ACTIONS */}
             <div className="mt-5 flex justify-end gap-2">
@@ -1461,6 +1470,8 @@ export default function AdminDashboard() {
                   setSearchTerm("");
                   setSearchResults([]);
                   setSelectedSubject(null);
+                  setDeleteError(null);
+                  setDeleteSuccess(null);
                 }}
                 className="rounded-md border border-slate-700 px-3 py-1.5
                      text-sm text-slate-300 hover:bg-slate-800"
@@ -1475,12 +1486,25 @@ export default function AdminDashboard() {
 
                   try {
                     setDeleteLoading(true);
+                    setDeleteError(null);
+                    setDeleteSuccess(null);
+
                     await deleteCatalogSubject(selectedSubject.id);
 
-                    setShowDeleteSubject(false);
+                    // show success
+                    setDeleteSuccess(
+                      "Course removed from catalog successfully",
+                    );
+
+                    // clear selection
                     setSearchTerm("");
-                    setSearchResults([]);
                     setSelectedSubject(null);
+                    setSearchResults([]);
+
+                    // auto-hide success message after 2 seconds
+                    setTimeout(() => {
+                      setDeleteSuccess(null);
+                    }, 2000);
                   } catch (e: any) {
                     setDeleteError(
                       e?.response?.data?.detail || "Failed to delete subject",
