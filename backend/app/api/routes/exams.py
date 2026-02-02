@@ -21,7 +21,6 @@ from sqlalchemy.orm import aliased
 
 router = APIRouter()
 
-
 @router.post("/sections", response_model=ExamSectionOut)
 def create_section(payload: ExamSectionCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
    
@@ -340,7 +339,11 @@ def save_marks(
             existing_labels = {q.label for q in q_objs}
 
     # map label -> Question object
-    q_map = {q.label: q for q in q_objs}
+    q_map = {}
+    for q in q_objs:
+        if q.label not in q_map:
+            q_map[q.label] = q
+
     logger.info("Final question labels for exam %s: %s", exam_id, list(q_map.keys()))
 
     # --- Persist question_rules if present (store dict or JSON string depending on column type) ---
@@ -630,22 +633,29 @@ def get_admin_combined_marks(
 
     # 3️ Students (merged, unique by roll_no)
     # collect unique roll numbers across all exams
-    rolls = (
-        db.query(Student.roll_no)
-        .filter(Student.exam_id.in_(exam_ids))
-        .distinct()
-        .order_by(Student.roll_no.asc())
-        .all()
-    )
+    students = (
+    db.query(Student)
+    .filter(Student.exam_id.in_(exam_ids))
+    .all()
+)
+    students_by_roll = {}
 
-    merged_students = [
-        {
-            "id": roll.roll_no,   # synthetic id
-            "roll_no": roll.roll_no,
-            "absent": False,
-        }
-        for roll in rolls
-    ]
+    for s in students:
+        roll = s.roll_no
+        if roll not in students_by_roll:
+            students_by_roll[roll] = {
+                "id": roll,              # synthetic but stable
+                "roll_no": roll,
+                "absent": bool(s.absent),
+            }
+        else:
+            # if ABSENT in ANY exam → absent in admin view
+            students_by_roll[roll]["absent"] = (
+                students_by_roll[roll]["absent"] or bool(s.absent)
+            )
+
+    merged_students = list(students_by_roll.values())
+
 
     # 4️ Marks (ALL)
     marks = (
