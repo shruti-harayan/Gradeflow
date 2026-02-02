@@ -123,20 +123,11 @@ export default function MarksEntry() {
   const isFinalized = !!exam?.is_locked;
   const disabled = isFrozen || isFinalized;
 
-
   useEffect(() => {
-  if (!isAdminView && sections.length === 1 && selectedSectionId === null) {
-    setSelectedSectionId(sections[0].id);
-
-    const sec = sections[0];
-    const generated = generateStudentsFromRange(
-      Number(sec.roll_start),
-      Number(sec.roll_end)
-    );
-    setStudents(generated);
-  }
-}, [sections, selectedSectionId, isAdminView]);
-
+    if (!isAdminView && sections.length === 1 && selectedSectionId === null) {
+      setSelectedSectionId(sections[0].id);
+    }
+  }, [sections, selectedSectionId, isAdminView]);
 
   React.useEffect(() => {
     async function loadSections() {
@@ -161,140 +152,143 @@ export default function MarksEntry() {
 
   // Section select handler: selects and generates rows for that section's range
   function handleSectionSelect(e: React.ChangeEvent<HTMLSelectElement>) {
-
     if (isAdminView) return;
+
     const val = e.target.value;
     if (!val) {
       setSelectedSectionId(null);
       setStudents([]);
       return;
     }
+
     const secId = Number(val);
     const sec = sections.find((s) => s.id === secId);
     setSelectedSectionId(secId);
 
-    if (sec) {
-      // generate students from section roll range
-      const start = Number(sec.roll_start ?? sec.roll_start ?? 0);
-      const end = Number(sec.roll_end ?? sec.roll_end ?? 0);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
-        // invalid section ranges — do nothing
-        setStudents([]);
-        return;
-      }
+    if (!sec) {
+      setStudents([]);
+      return;
+    }
+
+    const start = Number(sec.roll_start);
+    const end = Number(sec.roll_end);
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+      setStudents([]);
+      return;
+    }
+
+    //  generate ONLY if students are empty
+    if (students.length === 0) {
       const generated = generateStudentsFromRange(start, end);
       setStudents(generated);
-    } else {
-      setStudents([]);
     }
   }
 
   useEffect(() => {
-  async function loadExamMeta() {
-    if (!examId || examId <= 0) return;
+    async function loadExamMeta() {
+      if (!examId || examId <= 0) return;
 
-    try {
-      const data = await getExamMarks(examId); // safe for both views
-      setExam(data.exam as ExamWithRules);
+      try {
+        const data = await getExamMarks(examId); // safe for both views
+        setExam(data.exam as ExamWithRules);
 
-      setSubjectCode(data.exam.subject_code);
-      setSubjectName(data.exam.subject_name);
-      setExamName(data.exam.exam_type);
-      setSemester(data.exam.semester);
+        setSubjectCode(data.exam.subject_code);
+        setSubjectName(data.exam.subject_name);
+        setExamName(data.exam.exam_type);
+        setSemester(data.exam.semester);
 
-      if (data.exam?.question_rules) {
-        const rules =
-          typeof data.exam.question_rules === "string"
-            ? JSON.parse(data.exam.question_rules)
-            : data.exam.question_rules;
-        setQuestionRules(rules || {});
+        if (data.exam?.question_rules) {
+          const rules =
+            typeof data.exam.question_rules === "string"
+              ? JSON.parse(data.exam.question_rules)
+              : data.exam.question_rules;
+          setQuestionRules(rules || {});
+        }
+      } catch (e) {
+        console.error("Failed to load exam meta", e);
       }
-    } catch (e) {
-      console.error("Failed to load exam meta", e);
     }
-  }
 
-  loadExamMeta();
-}, [examId]);
+    loadExamMeta();
+  }, [examId]);
 
-useEffect(() => {
-  async function loadMarks() {
-    if (!exam) return;
+  useEffect(() => {
+    async function loadMarks() {
+      if (!exam) return;
 
-    try {
-      let data: ExamMarksOut;
+      try {
+        let data: ExamMarksOut;
 
-      if (isAdminView) {
-        const params = new URLSearchParams({
-          subject_code: exam.subject_code,
-          subject_name: exam.subject_name,
-          exam_type: exam.exam_type,
-          semester: String(exam.semester),
-          academic_year: exam.academic_year,
-        });
-
-        const res = await api.get(
-          `/exams/admin/combined-marks?${params.toString()}`
-        );
-        data = res.data;
-      } else {
-        //  TEACHER PATH
-        data = await getExamMarks(exam.id);
-      }
-
-      /* ---------------- QUESTIONS ---------------- */
-      if (data.questions?.length) {
-        const mqMap = new Map<string, MainQuestion>();
-
-        data.questions.forEach((q) => {
-          const [main, sub] = q.label.split(".");
-          if (!mqMap.has(main)) {
-            mqMap.set(main, {
-              id: Number(main),
-              label: main,
-              subQuestions: [],
-            });
-          }
-
-          mqMap.get(main)!.subQuestions.push({
-            id: q.id,
-            label: sub ?? "A",
-            maxMarks: q.max_marks,
+        if (isAdminView) {
+          const params = new URLSearchParams({
+            subject_code: exam.subject_code,
+            subject_name: exam.subject_name,
+            exam_type: exam.exam_type,
+            semester: String(exam.semester),
+            academic_year: exam.academic_year,
           });
-        });
 
-        setMainQuestions(Array.from(mqMap.values()));
+          const res = await api.get(
+            `/exams/admin/combined-marks?${params.toString()}`,
+          );
+          data = res.data;
+        } else {
+          //  TEACHER PATH
+          data = await getExamMarks(exam.id);
+        }
+
+        /* ---------------- QUESTIONS ---------------- */
+        if (data.questions?.length) {
+          const mqMap = new Map<string, MainQuestion>();
+
+          data.questions.forEach((q) => {
+            const [main, sub] = q.label.split(".");
+            if (!mqMap.has(main)) {
+              mqMap.set(main, {
+                id: Number(main),
+                label: main,
+                subQuestions: [],
+              });
+            }
+
+            mqMap.get(main)!.subQuestions.push({
+              id: q.id,
+              label: sub ?? "A",
+              maxMarks: q.max_marks,
+            });
+          });
+
+          setMainQuestions(Array.from(mqMap.values()));
+        }
+
+        /* ---------------- STUDENTS ---------------- */
+        if (data.students?.length) {
+          setStudents(
+            data.students.map((s: any) => ({
+              id: s.id,
+              rollNo: s.roll_no,
+              absent: s.absent,
+            })),
+          );
+        }
+
+        /* ---------------- MARKS (THIS WAS MISSING) ---------------- */
+        const marksMap: MarksMap = {};
+        if (data.marks?.length) {
+          data.marks.forEach((m: any) => {
+            const key = `${m.roll_no}-${m.question_label}`;
+            marksMap[key] = m.marks ?? "";
+          });
+        }
+        setMarks(marksMap);
+      } catch (e) {
+        console.error("Failed to load marks", e);
       }
-
-      /* ---------------- STUDENTS ---------------- */
-      if (data.students?.length) {
-        setStudents(
-          data.students.map((s: any) => ({
-            id: s.id,
-            rollNo: s.roll_no,
-            absent: s.absent,
-          }))
-        );
-      }
-
-      /* ---------------- MARKS (THIS WAS MISSING) ---------------- */
-      const marksMap: MarksMap = {};
-      if (data.marks?.length) {
-        data.marks.forEach((m: any) => {
-          const key = `${m.roll_no}-${m.question_label}`;
-          marksMap[key] = m.marks ?? "";
-        });
-      }
-      setMarks(marksMap);
-
-    } catch (e) {
-      console.error("Failed to load marks", e);
     }
-  }
 
-  loadMarks();
-}, [exam, isAdminView]);
-
+    loadMarks();
+  }, [exam, isAdminView]);
 
   // helpers
   const normalizeRollValue = (v: string) => v.trim();
@@ -1727,6 +1721,12 @@ useEffect(() => {
             {mainQuestions.reduce((s, mq) => s + mq.subQuestions.length, 0)}
           </span>
         </div>
+
+        {!isAdminView && sections.length > 0 && !selectedSectionId && (
+          <div className="text-xs text-yellow-400 mt-2">
+            Please select a section to continue.
+          </div>
+        )}
 
         <div className="flex gap-3">
           {!isAdminView ? (
