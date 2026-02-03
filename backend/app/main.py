@@ -17,26 +17,21 @@ def create_initial_admin(db: Session):
         new_admin = User(
             name="System Admin",
             email=admin_email,
-            hashed_password=hash_password("admin123"), # Change after login
+            hashed_password=hash_password("admin123"), 
             role="admin"
         )
         db.add(new_admin)
         db.commit()
 
 def seed_all_data(db: Session):
-
-    # -------------------------------------------------
     # 1. PROGRAMMES
     programmes = [
         # B.Sc. IT
         {"name": "B.Sc. (Information Technology)", "code": "BSC_IT", "sem": 6, "start": 1},
-
         # M.Sc. IT
         {"name": "M.Sc. (Information Technology)", "code": "MSC_IT", "sem": 4, "start": 1},
-
         # M.Com Part-I
         {"name": "M.Com. (Part-I)", "code": "MCOM", "sem": 2, "start": 1},
-
         # M.Com Part-II
         {"name": "M.Com. (Part-II - Advanced Accounting)", "code": "MCOM", "sem": 2, "start": 3},
         {"name": "M.Com. (Part-II - Business Management)", "code": "MCOM", "sem": 2, "start": 3},
@@ -47,19 +42,9 @@ def seed_all_data(db: Session):
             db.add(Programme(name=p["name"], programme_code=p["code"], total_semesters=p["sem"], semester_start=1))
     db.commit()
 
-    # -------------------------------------------------
+
     # 2. SUBJECT CATALOG
     subjects_list = [
-    # -------------------------------------------------
-    # M.Com. (Part-I) – Semester 2
-    # -------------------------------------------------
-    ("M.Com. (Part-I)", 2, "PMCOM.201", "Corporate Financial Reporting"),
-    ("M.Com. (Part-I)", 2, "PMCOM.202", "E-Commerce"),
-    ("M.Com. (Part-I)", 2, "PMCOM.203", "Advance Macroeconomics"),
-    ("M.Com. (Part-I)", 2, "PMCOM.204", "Marketing Research"),
-    ("M.Com. (Part-I)", 2, "PMCOM.205", "Investment Analysis and Portfolio Management"),
-    ("M.Com. (Part-I)", 2, "PMCOM.206", "Internship"),
-
     # -------------------------------------------------
 # M.Com. (Part-II - Advanced Accounting) – Semester 4
 # -------------------------------------------------
@@ -69,17 +54,6 @@ def seed_all_data(db: Session):
 ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.404", "Advanced Auditing"),
 ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.405", "Financial Reporting-II"),
 ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.406", "Research Project"),
-
-        # -------------------------------------------------
-# M.Com. (Part-II - Business Management) – Semester 4
-# -------------------------------------------------
-("M.Com. (Part-II - Business Management)", 4, "PMCOM.401", "Supply Chain Management"),
-("M.Com. (Part-II - Business Management)", 4, "PMCOM.402", "Management of Business Relations"),
-("M.Com. (Part-II - Business Management)", 4, "PMCOM.403", "Tourism Management"),
-("M.Com. (Part-II - Business Management)", 4, "PMCOM.404", "Organisational Behaviour"),
-("M.Com. (Part-II - Business Management)", 4, "PMCOM.405", "Advertising and Sales Management"),
-("M.Com. (Part-II - Business Management)", 4, "PMCOM.406", "Research Project"),
-
        
     ]
     for prog, sem, code, name in subjects_list:
@@ -126,7 +100,5 @@ app.include_router(subjects.router, prefix="/subjects", tags=["subjects"])
 @app.get("/")
 async def root():
     return {"status": "ok"}
-
-
 
 
