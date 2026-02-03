@@ -9,6 +9,20 @@ import logging
 from app.models.programme import Programme
 from app.models.exam import SubjectCatalog
 
+def create_initial_admin(db: Session):
+    admin_email = "admin@gradeflow.com"
+    existing_admin = db.query(User).filter(User.email == admin_email).first()
+    if not existing_admin:
+        print(f"Creating default admin: {admin_email}")
+        new_admin = User(
+            name="System Admin",
+            email=admin_email,
+            hashed_password=hash_password("admin123"), # Change after login
+            role="admin"
+        )
+        db.add(new_admin)
+        db.commit()
+
 def seed_all_data(db: Session):
 
     # -------------------------------------------------
@@ -29,25 +43,13 @@ def seed_all_data(db: Session):
     ]
 
     for p in programmes:
-        exists = db.query(Programme).filter(
-            Programme.name == p["name"]
-        ).first()
-
-        if not exists:
-            db.add(
-                Programme(
-                    name=p["name"],
-                    programme_code=p["code"],
-                    total_semesters=p["sem"],
-                    semester_start=p["start"],
-                )
-            )
-
+        if not db.query(Programme).filter(Programme.name == p["name"]).first():
+            db.add(Programme(name=p["name"], programme_code=p["code"], total_semesters=p["sem"], semester_start=1))
     db.commit()
 
     # -------------------------------------------------
     # 2. SUBJECT CATALOG
-    subjects = [
+    subjects_list = [
 
         # -------------------------------
         # M.Sc. IT – Semester 1
@@ -173,27 +175,11 @@ def seed_all_data(db: Session):
         ("M.Com. (Part-II - Business Management)", 3, "PMCOM.305", "Marketing Strategies and Practices"),
         ("M.Com. (Part-II - Business Management)", 3, "PMCOM.306", "Research Project"),
     ]
-
-    for prog, sem, code, name in subjects:
-        exists = db.query(SubjectCatalog).filter(
-            SubjectCatalog.programme == prog,
-            SubjectCatalog.subject_code == code,
-            SubjectCatalog.semester == sem
-        ).first()
-
-        if not exists:
-            db.add(
-                SubjectCatalog(
-                    programme=prog,
-                    semester=sem,
-                    subject_code=code,
-                    subject_name=name,
-                    is_active=True
-                )
-            )
-
+    for prog, sem, code, name in subjects_list:
+        if not db.query(SubjectCatalog).filter(SubjectCatalog.subject_code == code).first():
+            db.add(SubjectCatalog(programme=prog, semester=sem, subject_code=code, subject_name=name))
     db.commit()
-
+    
 
 # 2. RUN SETUP
 Base.metadata.create_all(bind=engine)
@@ -201,7 +187,7 @@ Base.metadata.create_all(bind=engine)
 # Run seeding
 db = SessionLocal()
 try:
-    create_initial_admin() # From previous steps
+    create_initial_admin(db) # From previous steps
     seed_all_data(db)      # The function above
     print("Database seeding successful!")
 except Exception as e:
@@ -233,5 +219,6 @@ app.include_router(subjects.router, prefix="/subjects", tags=["subjects"])
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
