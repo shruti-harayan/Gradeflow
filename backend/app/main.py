@@ -3,8 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine
 from app.api.routes import auth, exams, subjects
 from app.models import *
+from create_admin import create_initial_admin
 
 Base.metadata.create_all(bind=engine)
+create_initial_admin()
 
 app = FastAPI(title="GradeFlow API")
 
@@ -33,4 +35,5 @@ async def root():
 @app.options("/{path:path}")
 async def options_handler(path: str):
     return {}
+
 
