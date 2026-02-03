@@ -1728,8 +1728,20 @@ export default function MarksEntry() {
         </div>
 
         {!isAdminView && sections.length > 0 && !selectedSectionId && (
-          <div className="text-xs text-yellow-400 mt-2">
-            Please select a section to continue.
+          <div className="mt-4 rounded-xl border border-yellow-500/40 bg-yellow-900/30 px-5 py-4 shadow-md shadow-yellow-900/30">
+            <div className="flex items-start gap-3">
+              <div className="text-2xl">⚠️</div>
+
+              <div>
+                <p className="text-base font-semibold text-yellow-300">
+                  Section not selected
+                </p>
+                <p className="mt-1 text-sm text-yellow-200 leading-relaxed">
+                  Please select a section from the dropdown above to save marks
+                  for this exam.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
