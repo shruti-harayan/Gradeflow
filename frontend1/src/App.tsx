@@ -13,6 +13,7 @@ import TeacherList from "./pages/TeacherList";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import { useState, useEffect } from 'react';
+import AdminManagement from "./pages/AdminManagement";
 
 export default function App() {
   const [teachers, setTeachers] = useState([]);
@@ -87,6 +88,15 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+
+          <Route
+  path="/admin/list"
+  element={
+    <ProtectedRoute allowedRoles={["admin"]}>
+      <AdminManagement />
+    </ProtectedRoute>
+  }
+/>
 
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
