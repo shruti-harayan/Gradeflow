@@ -810,6 +810,13 @@ export default function AdminDashboard() {
         </Link>
 
         <button
+          onClick={() => navigate("/admin/list")}
+          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
+        >
+         ⚙ Manage Admins
+        </button>
+
+        <button
           onClick={() => setShowAddSubject(true)}
           className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
         >
@@ -838,13 +845,13 @@ export default function AdminDashboard() {
           className="px-3 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 text-sm"
           title="Change your password"
         >
-          Change Current Account's Password
+          ⚙ Change Current Account's Password
         </button>
         <button
           onClick={() => setShowPurgeModal(true)}
           className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
         >
-          ⚠️DELETE All Exams (cannot be undone)
+          ⚠️DELETE All Exams
         </button>
       </div>
 
