@@ -91,8 +91,8 @@ Shows the core marks entry table where teachers enter sub-question marks per stu
 ### 8️⃣ Admin Dashboard
 Displays the admin panel for managing exams and users. Admins can filter exams, lock/unlock submissions, and download CSV reports.
 
-<img width="953" height="386" alt="image" src="https://github.com/user-attachments/assets/27ca0436-b1c1-4fc1-9d7f-557bf1917565" />
 
+<img width="1918" height="849" alt="Screenshot 2026-02-11 174615" src="https://github.com/user-attachments/assets/222d6dfa-103e-4c1a-bce5-d49620ea61cc" />
 
 
 ---
