@@ -12,6 +12,7 @@ from app.models.user import PasswordReset
 from datetime import datetime, timedelta, timezone  
 from app.utils.emailer import send_email
 from app.core.config import APP_BASE_URL
+from app.schemas.user_schema import UserOut
 
 router = APIRouter()
 
@@ -407,3 +408,36 @@ def deactivate_user(
         "status": "ok",
         "message": "User deactivated permanently"
     }
+
+
+@router.get("/admin/list", response_model=List[UserOut])
+def list_admins(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+    # Fetch all active admins
+    return db.query(User).filter(User.role == "admin", User.is_deleted == False).all()
+
+@router.delete("/admin/users/{user_id}")
+def delete_admin_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+    # 1. Prevent deleting yourself
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
+
+    # 2. Prevent deleting the last admin
+    admin_count = db.query(User).filter(User.role == "admin", User.is_deleted == False).count()
+    if admin_count <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the only remaining admin.")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Perform Soft Delete
+    user.is_deleted = True
+    db.commit()
+    return {"detail": "Admin account deactivated successfully"}
