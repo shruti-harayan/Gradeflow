@@ -1768,7 +1768,7 @@ export default function MarksEntry() {
                 (disabled ? " opacity-50 cursor-not-allowed" : "")
               }
             >
-              Save to server
+              Save as draft
             </button>
           ) : (
             <div className="text-xs text-slate-400 px-4 py-2">
@@ -1805,3 +1805,4 @@ export default function MarksEntry() {
     </div>
   );
 }
+
