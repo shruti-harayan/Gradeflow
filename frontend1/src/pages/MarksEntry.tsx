@@ -633,8 +633,11 @@ export default function MarksEntry() {
 
       // mark that THIS teacher finalized it (so banner shows the teacher message)
       setIFinalized(true);
-
-      alert("Exam submitted. You can no longer edit marks.");
+       const successMessage = isAdminView
+        ? "Exam locked successfully. The teacher can no longer edit marks."
+        : "Exam submitted. You can no longer edit marks.";
+      alert(successMessage);
+      
     } catch (err) {
       console.error("Finalize failed", err);
       alert("Failed to finalize exam.");
@@ -1804,6 +1807,7 @@ export default function MarksEntry() {
     </div>
   );
 }
+
 
 
 
