@@ -51,29 +51,31 @@ def add_subject_to_catalog(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
+    normalized_code = data.subject_code.strip().upper()
+
     existing = (
         db.query(SubjectCatalog)
         .filter(
             SubjectCatalog.programme == data.programme,
             SubjectCatalog.semester == data.semester,
-            SubjectCatalog.subject_code == data.subject_code,
-            SubjectCatalog.is_active == 1,
+            SubjectCatalog.subject_code == normalized_code,
+            SubjectCatalog.is_active.is_(True),
         )
         .first()
     )
-
+    
     if existing:
         raise HTTPException(
             status_code=400,
             detail="Subject already exists for this programme and semester",
         )
-
+    
     subject = SubjectCatalog(
         programme=data.programme,
         semester=data.semester,
-        subject_code=data.subject_code.upper(),
+        subject_code=normalized_code,
         subject_name=data.subject_name,
-        is_active=1,
+        is_active=True,
     )
 
     db.add(subject)
@@ -195,3 +197,4 @@ def create_programme(
     db.refresh(programme)
 
     return programme
+
