@@ -654,9 +654,11 @@ def get_admin_combined_marks(
                 students_by_roll[roll]["absent"] or bool(s.absent)
             )
 
-    merged_students = list(students_by_roll.values())
-
-
+    merged_students = sorted(
+    students_by_roll.values(),
+    key=lambda s: int(s["roll_no"])
+)
+   
     # 4️ Marks (ALL)
     marks = (
         db.query(Mark)
@@ -1184,4 +1186,5 @@ def delete_exams_by_academic_year(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to delete exams: {str(e)}"
+
         )
