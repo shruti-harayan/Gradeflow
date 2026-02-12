@@ -619,12 +619,11 @@ export default function MarksEntry() {
       );
       return;
     }
-    if (
-      !window.confirm(
-        "This will final-submit the exam. You will not be able to edit marks afterwards. Proceed?",
-      )
-    )
-      return;
+    const confirmMessage = isAdminView
+    ? "Final-submitting (locking) will prevent the teacher from editing marks. Are you sure?"
+    : "This will final-submit the exam. You will not be able to edit marks afterwards. Proceed?";
+  
+    if (!window.confirm(confirmMessage)) return;
 
     try {
       await finalizeExam(exam.id);
@@ -1805,4 +1804,5 @@ export default function MarksEntry() {
     </div>
   );
 }
+
 
