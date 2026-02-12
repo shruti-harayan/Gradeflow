@@ -4,24 +4,9 @@ from sqlalchemy.orm import Session
 from app.database import Base, engine, SessionLocal
 from app.api.routes import auth, exams, subjects
 from app.models.user import User
-from app.core.security import hash_password
-import logging
 from app.models.programme import Programme
 from app.models.exam import SubjectCatalog
 
-def create_initial_admin(db: Session):
-    admin_email = "admin@gradeflow.com"
-    existing_admin = db.query(User).filter(User.email == admin_email).first()
-    if not existing_admin:
-        print(f"Creating default admin: {admin_email}")
-        new_admin = User(
-            name="System Admin",
-            email=admin_email,
-            hashed_password=hash_password("admin123"), 
-            role="admin"
-        )
-        db.add(new_admin)
-        db.commit()
 
 def seed_all_data(db: Session):
     # 1. PROGRAMMES
@@ -65,17 +50,6 @@ def seed_all_data(db: Session):
 # 2. RUN SETUP
 Base.metadata.create_all(bind=engine)
 
-# Run seeding
-db = SessionLocal()
-try:
-    create_initial_admin(db) # From previous steps
-    seed_all_data(db)      # The function above
-    print("Database seeding successful!")
-except Exception as e:
-    print(f"Error seeding data: {e}")
-finally:
-    db.close()
-
 app = FastAPI(title="GradeFlow API")
 
 # 3. CORS SETTINGS
@@ -100,5 +74,6 @@ app.include_router(subjects.router, prefix="/subjects", tags=["subjects"])
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
