@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.programme import Programme
 from app.schemas.programme import ProgrammeCreate, ProgrammeOut
 import re
+from sqlalchemy import func
 
 router = APIRouter()
 
@@ -126,11 +127,13 @@ def search_subjects(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
+    search_term = q.strip().lower()
+    print("Search query:", q)
     rows = (
         db.query(SubjectCatalog)
         .filter(
-            SubjectCatalog.is_active == 1,
-            SubjectCatalog.subject_name.ilike(f"%{q.strip()}%"),
+            SubjectCatalog.is_active.is_(True),
+            func.lower(func.trim(SubjectCatalog.subject_name)).like(f"%{search_term}%"),
         )
         .order_by(
             SubjectCatalog.subject_name,
@@ -140,9 +143,7 @@ def search_subjects(
         .limit(20)
         .all()
     )
-
     return rows
-
 
 @router.post(
     "/catalog/programmes",
@@ -197,4 +198,5 @@ def create_programme(
     db.refresh(programme)
 
     return programme
+
 
