@@ -11,8 +11,6 @@ from app.models.exam import SubjectCatalog
 def seed_all_data(db: Session):
     # 1. PROGRAMMES
     programmes = [
-        # B.Sc. IT
-        {"name": "B.Sc. (Information Technology)", "code": "BSC_IT", "sem": 6, "start": 1},
         # M.Sc. IT
         {"name": "M.Sc. (Information Technology)", "code": "MSC_IT", "sem": 4, "start": 1},
         # M.Com Part-I
@@ -21,36 +19,41 @@ def seed_all_data(db: Session):
         {"name": "M.Com. (Part-II - Advanced Accounting)", "code": "MCOM", "sem": 2, "start": 3},
         {"name": "M.Com. (Part-II - Business Management)", "code": "MCOM", "sem": 2, "start": 3},
     ]
-
     for p in programmes:
         if not db.query(Programme).filter(Programme.name == p["name"]).first():
-            db.add(Programme(name=p["name"], programme_code=p["code"], total_semesters=p["sem"], semester_start=1))
+            db.add(Programme(name=p["name"], programme_code=p["code"], total_semesters=p["sem"], semester_start=p["start"]))
     db.commit()
 
 
     # 2. SUBJECT CATALOG
     subjects_list = [
     # -------------------------------------------------
-# M.Com. (Part-II - Advanced Accounting) – Semester 4
-# -------------------------------------------------
-("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.401", "Corporate Financial Accounting"),
-("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.402", "Indirect Tax"),
-("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.403", "Financial Management"),
-("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.404", "Advanced Auditing"),
-("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.405", "Financial Reporting-II"),
-("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.406", "Research Project"),
-       
+    # M.Com. (Part-II - Advanced Accounting) – Semester 4
+    # -------------------------------------------------
+    ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.401", "Corporate Financial Accounting"),
+    ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.402", "Indirect Tax"),
+    ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.403", "Financial Management"),
+    ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.404", "Advanced Auditing"),
+    ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.405", "Financial Reporting-II"),
+    ("M.Com. (Part-II - Advanced Accounting)", 4, "PMCOM.406", "Research Project"),
     ]
     for prog, sem, code, name in subjects_list:
         if not db.query(SubjectCatalog).filter(SubjectCatalog.subject_code == code).first():
             db.add(SubjectCatalog(programme=prog, semester=sem, subject_code=code, subject_name=name))
     db.commit()
-    
 
-# 2. RUN SETUP
+# RUN SETUP
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="GradeFlow API")
+
+# @app.on_event("startup")
+# def startup_event():
+#     db = SessionLocal()
+#     try:
+#         seed_all_data(db)
+#     finally:
+#         db.close()
 
 # 3. CORS SETTINGS
 origins = [
@@ -74,6 +77,3 @@ app.include_router(subjects.router, prefix="/subjects", tags=["subjects"])
 @app.get("/")
 async def root():
     return {"status": "ok"}
-
-
-
