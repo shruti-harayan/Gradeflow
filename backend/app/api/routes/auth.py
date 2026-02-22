@@ -4,8 +4,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
-from app.core.security import create_access_token,hash_password,get_current_user,verify_password
-from passlib.hash import argon2
+from app.core.security import ALGORITHM, SECRET_KEY, create_access_token,hash_password,get_current_user,verify_password
 from app.api.dependencies import admin_required
 from typing import List
 from app.models.user import PasswordReset
@@ -13,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 from app.utils.emailer import send_email
 from app.core.config import APP_BASE_URL
 from app.schemas.user_schema import UserOut
+from jose import jwt, JWTError
+from app.core.security import create_refresh_token
 
 router = APIRouter()
 
@@ -203,8 +204,8 @@ class TeacherOut(BaseModel):
         from_attributes = True 
 
 # Reset password input schema
-class ResetPasswordIn(BaseModel):
-    new_password: str | None = None  # if None, server generates random temp pw
+class AdminResetPasswordIn(BaseModel):
+    new_password: str | None = None 
 
 # GET teachers
 @router.get("/admin/teachers", response_model=List[TeacherOut], dependencies=[Depends(admin_required)])
@@ -276,7 +277,7 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    hashed_password = argon2.hash(payload.password)
+    hashed_password = hash_password(payload.password)
 
     user = User(
         name=payload.name,
@@ -289,8 +290,75 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
     db.refresh(user)
 
     access_token = create_access_token({"sub": str(user.id)})
-    return {"access_token": access_token, "user": user}
+    refresh_token = create_refresh_token({"sub": str(user.id)})
 
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "user": user
+    }
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+@router.post("/login")
+def login(payload: LoginIn, db: Session = Depends(get_db)):
+
+    user = db.query(User).filter(User.email == payload.email).first()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+
+    if user.is_deleted:
+        raise HTTPException(
+            status_code=403,
+            detail="This account has been deactivated by admin"
+        )
+
+    if not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+
+    access_token = create_access_token({"sub": str(user.id)})
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "user": user
+    }
+
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+@router.post("/refresh")
+def refresh_token(payload: RefreshIn, db: Session = Depends(get_db)):
+
+    try:
+        decoded = jwt.decode(payload.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        if decoded.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+        user_id = decoded.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+
+        try:
+            user_id = int(user_id)
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+
+        user = db.query(User).filter(User.id == user_id, User.is_deleted == False).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User no longer exists")
+
+        new_access = create_access_token({"sub": str(user.id)})
+        return {"access_token": new_access}
+
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+    
 
 # POST /auth/change-password
 class ChangePasswordIn(BaseModel):
@@ -311,30 +379,6 @@ def change_password(payload: ChangePasswordIn, current_user: User = Depends(get_
     return {"detail":"Password updated successfully"}
 
 
-class LoginIn(BaseModel):
-    email: str
-    password: str
-
-@router.post("/login")
-def login(payload: LoginIn, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email).first()
-    if user.is_deleted:
-        raise HTTPException(
-            status_code=403,
-            detail="This account has been deactivated by admin"
-        )
-
-    if not user:
-        raise HTTPException(status_code=400, detail="Invalid email or password")
-
-    # verify argon2 hash
-    if not argon2.verify(payload.password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Invalid email or password")
-
-    access_token = create_access_token({"sub": str(user.id)})
-    return {"access_token": access_token, "user": user}
-
-
 @router.post("/admin-create-teacher", dependencies=[Depends(admin_required)])
 def admin_create_teacher(
     payload: AdminCreateTeacher,
@@ -345,7 +389,7 @@ def admin_create_teacher(
     if existing:
         raise HTTPException(status_code=400, detail="Email already exists")
 
-    hashed = argon2.hash(payload.password)
+    hashed = hash_password(payload.password)
 
     user = User(
         name=payload.name,
