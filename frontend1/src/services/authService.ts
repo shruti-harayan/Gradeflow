@@ -14,11 +14,13 @@ export interface User {
 export interface TokenResponse {
   access_token: string;
   token_type: string;
+  refresh_token: string;
   user: User;
 }
 
 function storeAuth(data: TokenResponse) {
   setAuthToken(data.access_token);
+  localStorage.setItem("gf_refresh", data.refresh_token);
   localStorage.setItem("gf_user", JSON.stringify(data.user));
 }
 
@@ -34,11 +36,12 @@ export async function signup(
   password: string,
   role: Role
 ) {
-  const res = await api.post<User>("/auth/signup", {
+  const res = await api.post<TokenResponse>("/auth/signup", {
     name,
     email,
     password,
     role,
   });
+  storeAuth(res.data);
   return res.data;
 }
