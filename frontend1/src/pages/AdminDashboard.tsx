@@ -19,12 +19,6 @@ import {
 } from "../services/catalogService";
 import type { Programme } from "../services/catalogService";
 
-type TeacherLite = {
-  id: number;
-  name?: string | null;
-  email: string;
-  is_frozen: boolean;
-};
 
 type AppliedFilters = {
   programme?: string;
@@ -34,7 +28,6 @@ type AppliedFilters = {
 };
 
 export default function AdminDashboard() {
-  const [teachers, setTeachers] = React.useState<TeacherLite[]>([]);
   const [exams, setExams] = React.useState<ExamOut[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -381,19 +374,7 @@ export default function AdminDashboard() {
     return () => document.removeEventListener("submit", onSubmit, true);
   }, []);
 
-  React.useEffect(() => {
-    async function loadTeachers() {
-      try {
-        const res = await api.get("/auth/admin/teachers");
-        setTeachers(res.data || []);
-      } catch (e) {
-        console.error("Failed to load teachers", e);
-      }
-    }
-
-    loadTeachers();
-  }, []);
-
+  
   function groupExamsForAdmin(exams: ExamOut[]) {
     const map = new Map<string, ExamOut[]>();
 
@@ -593,7 +574,7 @@ export default function AdminDashboard() {
               : ex,
           ),
         );
-        showToast("Exam unlocked for editing.");
+        //showToast("Exam unlocked for editing.");
       } else {
         await finalizeExam(examId);
         setExams((prev) =>
@@ -608,7 +589,7 @@ export default function AdminDashboard() {
               : ex,
           ),
         );
-        showToast("Exam finalized (locked).");
+        //showToast("Exam finalized (locked).");
       }
     } catch (err: any) {
       console.error("Toggle lock failed", err);
@@ -1034,8 +1015,7 @@ export default function AdminDashboard() {
         {/* LEFT: Teacher list  */}
         <div className="lg:col-span-1 space-y-4">
           <TeacherList
-            teachers={teachers}
-            onTeachersUpdated={setTeachers}
+            
             onSelectTeacher={(id, name) => {
               setSelectedTeacherId(id);
               setSelectedTeacherName(name);

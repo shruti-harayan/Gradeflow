@@ -1,5 +1,4 @@
-// src/pages/admin/TeacherList.tsx
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../services/api";
 
@@ -11,39 +10,53 @@ export type TeacherBase = {
 };
 
 type TeacherListProps = {
-  teachers: TeacherBase[];
   onSelectTeacher?: (teacherId: number, teacherName: string) => void;
-  onTeachersUpdated?: (teachers: TeacherBase[]) => void;
 };
 
-function TeacherList({
-  teachers,
-  onSelectTeacher,
-  onTeachersUpdated,
-}: TeacherListProps) {
+function TeacherList({ onSelectTeacher }: TeacherListProps) {
   const { user } = useAuth();
+  const [teachers, setTeachers] = useState<TeacherBase[]>([]);
 
   const [resetTarget, setResetTarget] = React.useState<TeacherBase | null>(
-    null
+    null,
   );
   const [resetPassword, setResetPassword] = React.useState("");
   const [resetLoading, setResetLoading] = React.useState(false);
   const [resetError, setResetError] = React.useState<string | null>(null);
   const [tempPassword, setTempPassword] = React.useState<string | null>(null);
 
+  //  Fetch teachers AFTER auth restored
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+
+    const fetchTeachers = async () => {
+      try {
+        const res = await api.get("/auth/admin/teachers");
+        setTeachers(res.data);
+      } catch (err) {
+        console.error("Failed to fetch teachers:", err);
+      }
+    };
+
+    fetchTeachers();
+  }, [user]);
+
   async function handleDeactivateTeacher(t: TeacherBase, e?: React.MouseEvent) {
     e?.stopPropagation();
 
     const confirmText = prompt(
-      `⚠️ PERMANENT ACTION\n\n` +
-        `This will permanently deactivate this account.\n\n` +
-        `• User will NEVER be able to log in\n` +
-        `• All exams & marks will remain\n` +
-        `• This action CANNOT be undone\n\n` +
-        `Type DELETE to confirm:`
+      `⚠️ PERMANENT ACTION
+
+    This will permanently deactivate this account.
+
+    • User will NEVER be able to log in
+    • All exams & marks will remain
+    • This action CANNOT be undone
+
+      Type DELETE to confirm:`,
     );
 
-    if (confirmText !== "DELETE") {
+    if (!confirmText || confirmText.trim().toUpperCase() !== "DELETE") {
       alert("Deactivation cancelled.");
       return;
     }
@@ -51,17 +64,15 @@ function TeacherList({
     try {
       await api.post(`/auth/admin/users/${t.id}/deactivate`);
 
-      // remove from UI immediately
-      onTeachersUpdated?.(teachers.filter((x) => x.id !== t.id));
+      //  update local state instead of parent callback
+      setTeachers((prev) => prev.filter((x) => x.id !== t.id));
 
       alert("User account deactivated permanently.");
     } catch (err: any) {
-      console.error("Deactivate failed", err);
       alert(err?.response?.data?.detail || "Failed to deactivate account");
     }
   }
 
-  // 🔒 Freeze / Unfreeze (ADMIN only)
   async function toggleFreeze(t: TeacherBase, e?: React.MouseEvent) {
     e?.stopPropagation();
 
@@ -72,21 +83,18 @@ function TeacherList({
         await api.post(`/auth/admin/teachers/${t.id}/freeze`);
       }
 
-      // notify parent to update teacher list
-      onTeachersUpdated?.(
-        teachers.map((x) =>
-          x.id === t.id ? { ...x, is_frozen: !t.is_frozen } : x
-        )
+      setTeachers((prev) =>
+        prev.map((x) =>
+          x.id === t.id ? { ...x, is_frozen: !t.is_frozen } : x,
+        ),
       );
     } catch (err: any) {
       alert(err?.response?.data?.detail || "Action failed");
     }
   }
 
-  // 🔑 Reset password
   function handleResetPassword(t: TeacherBase, e?: React.MouseEvent) {
     e?.stopPropagation();
-
     if (user?.role !== "admin") return;
 
     setResetTarget(t);
@@ -94,6 +102,7 @@ function TeacherList({
     setTempPassword(null);
     setResetError(null);
   }
+
   async function submitResetPassword() {
     if (!resetTarget) return;
 
@@ -108,7 +117,7 @@ function TeacherList({
 
       const resp = await api.post(
         `/auth/admin-reset-password/${resetTarget.id}`,
-        { password: resetPassword }
+        { password: resetPassword },
       );
 
       setTempPassword(resp?.data?.temporary_password || resetPassword);
@@ -130,64 +139,53 @@ function TeacherList({
             role="button"
             onClick={() => onSelectTeacher?.(t.id, t.name ?? t.email)}
             className="cursor-pointer rounded-lg bg-slate-900 p-4 hover:bg-slate-800 transition"
-            title="Click to view exams by this teacher"
           >
-            <div className="flex flex-col gap-3">
-              {/* Top row: identity */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-white font-semibold">
-                    {t.name ?? "—"}
-                  </div>
-                  <div className="text-slate-400 text-xs">{t.email}</div>
-                </div>
-
-                <span
-                  className={`text-xs italic ${
-                    t.is_frozen ? "text-amber-300" : "text-emerald-300"
-                  }`}
-                >
-                  {t.is_frozen ? "Frozen" : "Active"}
-                </span>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-white font-semibold">{t.name ?? "—"}</div>
+                <div className="text-slate-400 text-xs">{t.email}</div>
               </div>
 
-              {/* Bottom row: actions */}
-              <div className="flex flex-wrap gap-2 justify-end">
-                <button
-                  onClick={(e) => toggleFreeze(t, e)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition
-        ${
-          t.is_frozen
-            ? "bg-slate-600 text-white hover:bg-slate-500"
-            : "bg-emerald-600 text-white hover:bg-emerald-700"
-        }`}
-                >
-                  {t.is_frozen ? "Unfreeze" : "Freeze"}
-                </button>
+              <span
+                className={`text-xs italic ${t.is_frozen ? "text-amber-300" : "text-emerald-300"}`}
+              >
+                {t.is_frozen ? "Frozen" : "Active"}
+              </span>
+            </div>
 
-                <button
-                  onClick={(e) => handleResetPassword(t, e)}
-                  className="px-3 py-1.5 rounded-md text-xs font-semibold
-        bg-indigo-600 text-white hover:bg-indigo-700 transition"
-                >
-                  Reset password
-                </button>
+            <div className="flex gap-2 justify-end mt-3">
+              <button
+                onClick={(e) => toggleFreeze(t, e)}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold ${
+                  t.is_frozen
+                    ? "bg-slate-600 text-white hover:bg-slate-500"
+                    : "bg-emerald-600 text-white hover:bg-emerald-700"
+                }`}
+              >
+                {t.is_frozen ? "Unfreeze" : "Freeze"}
+              </button>
 
-                {user?.role === "admin" && (
-                  <button
-                    onClick={(e) => handleDeactivateTeacher(t, e)}
-                    className="px-3 py-1.5 rounded-md text-xs font-semibold
-          bg-red-700 text-white hover:bg-red-800 transition"
-                  >
-                    Deactivate
-                  </button>
-                )}
-              </div>
+              <button
+                onClick={(e) => handleResetPassword(t, e)}
+                className="px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                Reset password
+              </button>
+
+              {user?.role === "admin" && (
+                <button
+                  onClick={(e) => handleDeactivateTeacher(t, e)}
+                  className="px-3 py-1.5 rounded-md text-xs font-semibold bg-red-700 text-white hover:bg-red-800"
+                >
+                  Deactivate
+                </button>
+              )}
             </div>
           </div>
         ))}
       </div>
 
+      {/* reset modal  */}
       {resetTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="w-full max-w-md rounded-lg bg-slate-900 p-5 shadow-xl">
