@@ -1,8 +1,9 @@
 # app/utils/emailer.py
-from email.message import EmailMessage
-import smtplib
+
+import resend
 from typing import Optional
-from app.core.config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM
+from app.core.config import RESEND_API_KEY, EMAIL_FROM
+resend.api_key = RESEND_API_KEY
 
 def send_email(
     to_email: str,
@@ -10,28 +11,23 @@ def send_email(
     plain_body: str,
     html_body: Optional[str] = None,
 ) -> None:
-    """
-    Synchronously send an email via SMTP.
-    Raises smtplib.SMTPException on failure.
-    """
 
-    if not all([SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS]):
-        raise RuntimeError("SMTP is not configured. Check environment variables.")
+    if not RESEND_API_KEY:
+        raise RuntimeError("RESEND_API_KEY not configured")
 
-    msg = EmailMessage()
-    msg["From"] = EMAIL_FROM
-    msg["To"] = to_email
-    msg["Subject"] = subject
-    msg.set_content(plain_body)
-    if html_body:
-        msg.add_alternative(html_body, subtype="html")
-
-    # Use SMTP over SSL (port 465) or StartTLS (port 587) depending on provider.
-    # Here we prefer SSL (465). If you use 587, use smtplib.SMTP and starttls().
     try:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as smtp:
-            smtp.login(SMTP_USER, SMTP_PASS)
-            smtp.send_message(msg)
+        params = {
+            "from": EMAIL_FROM,
+            "to": [to_email],
+            "subject": subject,
+            "text": plain_body,
+        }
+
+        if html_body:
+            params["html"] = html_body
+
+        resend.Emails.send(params)
+
     except Exception as e:
-        # re-raise so caller can handle/log
+        print("Resend email error:", e)
         raise
