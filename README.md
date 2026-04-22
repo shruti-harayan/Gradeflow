@@ -27,6 +27,7 @@ GradeFlow solves this problem by:
 - Save marks as draft
 - Final submit with system-level lock
 - Export marks as Excel/CSV
+Teacher Guide:https://drive.google.com/file/d/1x2WptJnp3TlRNBax13bZgd-_CO5X0Q5Z/view?usp=drive_link
 
 ### 🛡️ Admin Module
 - Create and manage teacher/admin accounts
@@ -35,6 +36,7 @@ GradeFlow solves this problem by:
 - Read-only access to marks for review
 - Download final CSV/Excel reports
 - Reset passwords and freeze user accounts
+Admin Guide:https://drive.google.com/file/d/1_T5t19Z4ZlPM1PiHlGycW15lJ1fmGM8T/view?usp=drive_link
 
 ## 📸 Screenshots
 
