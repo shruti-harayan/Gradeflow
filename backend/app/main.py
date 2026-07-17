@@ -59,7 +59,8 @@ app = FastAPI(title="GradeFlow API")
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://grade-frontend-vercel.vercel.app", # Vercel URL
+    "https://grade-frontend-vercel.vercel.app",
+    "https://studious-giggle-jjrvv7w7j9w5hj544-5173.app.github.dev"
 ]
 
 app.add_middleware(
