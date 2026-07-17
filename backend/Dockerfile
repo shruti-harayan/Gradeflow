@@ -1,25 +1,41 @@
+# -----------------------------
 # Base Image
+# -----------------------------
 FROM python:3.12-slim
 
-# Prevent Python from creating .pyc files
+# -----------------------------
+# Environment Variables
+# -----------------------------
 ENV PYTHONDONTWRITEBYTECODE=1
-
-# Show Python logs immediately
 ENV PYTHONUNBUFFERED=1
 
-# Working directory
+# -----------------------------
+# Working Directory
+# -----------------------------
 WORKDIR /app
 
-# Install dependencies
+# -----------------------------
+# Copy requirements first
+# -----------------------------
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements.txt
+# -----------------------------
+# Install dependencies
+# -----------------------------
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy project
+# -----------------------------
+# Copy the project
+# -----------------------------
 COPY . .
 
-# Expose FastAPI port
+# -----------------------------
+# Expose FastAPI Port
+# -----------------------------
 EXPOSE 8000
 
-# Run FastAPI
-CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
+# -----------------------------
+# Start FastAPI
+# -----------------------------
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
