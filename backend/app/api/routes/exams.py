@@ -151,7 +151,7 @@ def unfinalize_exam(
     return {"status": "ok", "message": "Exam unfinalized globally"}
 
 
-@router.get("/", response_model=List[ExamOut])
+@router.get("", response_model=List[ExamOut])
 def list_exams(
     subject_name: Optional[str] = Query(None),
     academic_year: Optional[str] = Query(None),
@@ -207,7 +207,7 @@ def list_exams(
     return result
 
 
-@router.post("/", response_model=ExamOut)
+@router.post("", response_model=ExamOut)
 def create_exam(
     exam_in: ExamCreate,
     db: Session = Depends(get_db),
