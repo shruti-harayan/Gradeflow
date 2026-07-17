@@ -16,7 +16,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_BACKEND_URL: http://localhost:8000
+      VITE_BACKEND_URL: https://studious-giggle-jjrvv7w7j9w5hj544-8000.app.github.dev
     depends_on:
       - backend
     restart: unless-stopped
