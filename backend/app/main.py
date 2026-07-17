@@ -56,14 +56,16 @@ app = FastAPI(title="GradeFlow API")
 #         db.close()
 
 # 3. CORS SETTINGS
+from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "https://grade-frontend-vercel.vercel.app",
+        "https://studious-giggle-jjrvv7w7j9w5hj544-5173.app.github.dev",
     ],
-    allow_origin_regex=r"https://.*\.app\.github\.dev",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
