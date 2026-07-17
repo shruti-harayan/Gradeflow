@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API_BASE =
-  import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+  import.meta.env.VITE_BACKEND_URL || "https://studious-giggle-jjrvv7w7j9w5hj544-8000.app.github.dev";
 
 function triggerSessionExpired() {
   window.dispatchEvent(new Event("session-expired"));
