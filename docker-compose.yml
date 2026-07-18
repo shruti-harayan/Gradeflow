@@ -15,7 +15,7 @@ services:
     container_name: gradeflow-frontend
     ports:
       - "5173:5173"
-     env_file:
+    env_file:
       - ./frontend1/.env
     depends_on:
       - backend
