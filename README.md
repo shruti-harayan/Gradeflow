@@ -1,5 +1,11 @@
+![React](https://img.shields.io/badge/React-19-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.116-green)
+![Docker](https://img.shields.io/badge/Docker-Containerized-blue)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-336791)
+![License](https://img.shields.io/badge/License-Academic-orange)
+
 # GradeFlow 🎓  
-**A Rule-Based Academic Grading & Workflow Management System**
+**A Dockerized Full-Stack Academic Grading & Workflow Management System built with React, FastAPI, PostgreSQL, and Docker.**
 
 GradeFlow is a web-based grading system designed for colleges to replace spreadsheet-based mark entry workflows. It enables teachers to enter question-wise marks, automatically compute totals using predefined rules, and submit finalized results in a controlled manner. Administrators can review, lock/unlock exams, and download clean Excel/CSV reports for examination processing.
 
@@ -158,14 +164,167 @@ GradeFlow follows a **three-tier architecture**:
 
 ## 🛠️ Tech Stack
 
-- **Frontend:** React, Tailwind CSS  
-- **Backend:** FastAPI (Python)  
-- **Database:** Relational Database (e.g., PostgreSQL / SQLite for development)  
-- **Export:** CSV / Excel generation  
-- **Diagrams:** draw.io (for system & workflow diagrams)
+### Frontend
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- Axios
 
+### Backend
+- FastAPI
+- SQLAlchemy
+- Pydantic
+- JWT Authentication
+- Uvicorn
+
+### Database
+- PostgreSQL (Supabase)
+- SQLite (development fallback)
+
+### DevOps
+- Docker
+- Docker Compose
+
+### Other
+- CSV / Excel Export
+- draw.io
 
 ---
+
+## ☁️ Deployment
+
+The application is designed for cloud deployment.
+
+- Frontend: Vercel
+- Backend: Render / Docker
+- Database: Supabase PostgreSQL
+
+Environment variables are managed securely and are not committed to the repository.
+
+---
+
+## 🐳 Docker Support
+
+GradeFlow is fully containerized using Docker and Docker Compose, allowing the frontend and backend to run in isolated containers with minimal setup.
+
+### Services
+
+- **Frontend:** React + Vite
+- **Backend:** FastAPI + Uvicorn
+- **Database:** PostgreSQL (Supabase in production) / SQLite (local fallback)
+
+### Project Structure
+
+```
+GradeFlow
+│
+├── backend
+│   ├── Dockerfile
+│   ├── .env.example
+│   └── ...
+│
+├── frontend1
+│   ├── Dockerfile
+│   ├── .env.example
+│   └── ...
+│
+└── docker-compose.yml
+```
+
+### Clone Repository
+
+```bash
+git clone https://github.com/<your-username>/GradeFlow.git
+cd GradeFlow
+```
+
+### Configure Environment Variables
+
+Backend
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Frontend
+
+```bash
+cp frontend1/.env.example frontend1/.env
+```
+
+Update the `.env` files with your own configuration values.
+
+### Start the Application
+
+```bash
+docker compose up --build
+```
+
+Frontend
+
+```
+http://localhost:5173
+```
+
+Backend API
+
+```
+http://localhost:8000
+```
+
+Swagger API Documentation
+
+```
+http://localhost:8000/docs
+```
+
+### Stop Containers
+
+```bash
+docker compose down
+```
+
+### Rebuild Images
+
+```bash
+docker compose down
+docker compose up --build
+```
+
+---
+
+## 📖 API Documentation
+
+FastAPI automatically generates interactive API documentation.
+
+After starting the backend, visit:
+
+```
+http://localhost:8000/docs
+```
+
+to explore and test all REST endpoints.
+
+## 🔑 Environment Variables
+
+Backend
+
+```
+SECRET_KEY=
+ALGORITHM=
+ACCESS_TOKEN_EXPIRE_MINUTES=
+DATABASE_URL=
+RESEND_API_KEY=
+```
+
+Frontend
+
+```
+VITE_BACKEND_URL=
+```
+
+Copy `.env.example` to `.env` before running the project.
 
 ## 🔐 Security & Access Control
 
@@ -204,7 +363,7 @@ GradeFlow follows a **three-tier architecture**:
 ## 📜 License
 
 This project is developed for academic and educational purposes.  
-All rights reserved © 2025.
+All rights reserved © 2026.
 
 ---
 
