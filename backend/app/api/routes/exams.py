@@ -206,60 +206,59 @@ def list_exams(
 
     return result
 
-
-@router.post("", response_model=ExamOut)
+import traceback
+@router.post("/", response_model=ExamOut)
 def create_exam(
     exam_in: ExamCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    existing = db.query(Exam).filter(
-    Exam.subject_code == exam_in.subject_code,
-    Exam.exam_type == exam_in.exam_type,
-    Exam.semester == exam_in.semester,
-    Exam.academic_year == exam_in.academic_year,
-    Exam.created_by == current_user.id, 
-    Exam.programme == exam_in.programme,
-).first()
+   try:
+       existing = db.query(Exam).filter(
+       Exam.subject_code == exam_in.subject_code,
+       Exam.exam_type == exam_in.exam_type,
+       Exam.semester == exam_in.semester,
+       Exam.academic_year == exam_in.academic_year,
+       Exam.created_by == current_user.id, 
+       Exam.programme == exam_in.programme,
+   ).first()
+   
+       if existing:
+           raise HTTPException(
+               status_code=400,
+               detail="You have already created this exam."
+           )
 
-    if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="You have already created this exam."
-        )
+       exam = Exam(
+           programme=exam_in.programme,
+           subject_code=exam_in.subject_code,
+           subject_name=exam_in.subject_name,
+           exam_type=exam_in.exam_type,
+           semester=exam_in.semester,
+           created_by=current_user.id,
+           academic_year=exam_in.academic_year,
+           is_locked=False,
+       )
+       db.add(exam)
+       db.commit()
+       db.refresh(exam)
+       return exam
+   except Exception as e:
+        db.rollback()
+        print(traceback.format_exc())
+        raise
 
-    logger.info(
-    "Create exam called by user_id=%s email=%s",
-    current_user.id,
-    current_user.email,
-)
-    exam = Exam(
-        programme=exam_in.programme,
-        subject_code=exam_in.subject_code,
-        subject_name=exam_in.subject_name,
-        exam_type=exam_in.exam_type,
-        semester=exam_in.semester,
-        created_by=current_user.id,
-        academic_year=exam_in.academic_year,
-        is_locked=False,
-    )
-    db.add(exam)
-    db.commit()
-    db.refresh(exam)
-    return exam
+# __table_args__ = (
+#     UniqueConstraint(
+#         "subject_code",
+#         "exam_type",
+#         "semester",
+#         "academic_year",
+#         "created_by",
+#         name="uq_exam_per_teacher",
+#     ),
+# )
 
-__table_args__ = (
-    UniqueConstraint(
-        "subject_code",
-        "exam_type",
-        "semester",
-        "academic_year",
-        "created_by",
-        name="uq_exam_per_teacher",
-    ),
-)
-
-logger = logging.getLogger("uvicorn.error")
 
 @router.post("/{exam_id}/marks")
 def save_marks(
