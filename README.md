@@ -306,6 +306,7 @@ http://localhost:8000/docs
 
 to explore and test all REST endpoints.
 
+---
 ## 🔑 Environment Variables
 
 Backend
@@ -326,6 +327,7 @@ VITE_BACKEND_URL=
 
 Copy `.env.example` to `.env` before running the project.
 
+---
 ## 🔐 Security & Access Control
 
 - Role-based access (Teacher / Admin)
