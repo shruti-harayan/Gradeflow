@@ -15,8 +15,8 @@ services:
     container_name: gradeflow-frontend
     ports:
       - "5173:5173"
-    environment:
-      VITE_BACKEND_URL: ${VITE_BACKEND_URL}
+     env_file:
+      - ./frontend1/.env
     depends_on:
       - backend
     restart: unless-stopped
